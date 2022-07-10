@@ -1,0 +1,12 @@
+const Builder = @import("std").build.Builder;
+pub fn build(b: *Builder) void {
+    const mode = b.standardReleaseOptions();
+    var exe = b.addExecutable("eiri", "src/eiri.zig");
+    exe.setBuildMode(mode);
+    exe.install();
+
+    const connect = b.step("connect", "connecto wired");
+    const run = exe.run();
+    run.step.dependOn(b.getInstallStep());
+    connect.dependOn(&run.step);
+}
