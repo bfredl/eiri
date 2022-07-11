@@ -3,6 +3,8 @@ const linux = std.os.linux;
 const BPF = linux.BPF;
 const Insn = BPF.Insn;
 
+const io = std.io;
+
 const fd_t = linux.fd_t;
 const errno = linux.getErrno;
 
@@ -33,13 +35,48 @@ pub fn prog_test_run(
         else => |err| std.os.unexpectedErrno(err),
     };
 }
+
+pub fn attach_uprobe(uprobe_type: u32) !fd_t {
+    // TODO: .size should be the default (stage2 bug)
+    var attr = linux.perf_event_attr{ .size = @sizeOf(linux.perf_event_attr) };
+
+    // TODO: use /sys/devices/system/cpu/online
+    // but not needed for uprobe/kprobe???
+
+    // the type value is dynamic and might be outside the defined values of
+    // PERF.TYPE. praxis or zig std correctness issue
+    attr.type = @intToEnum(linux.PERF.TYPE, uprobe_type);
+
+    const rc = linux.perf_event_open(&attr, 0, -1, 0, 0);
+    return switch (errno(rc)) {
+        .SUCCESS => @intCast(fd_t, rc),
+        .ACCES => error.UnsafeProgram,
+        .FAULT => error.BPFProgramFault,
+        .INVAL => error.InvalidArgument,
+        .PERM => error.AccessDenied,
+        else => |err| std.os.unexpectedErrno(err),
+    };
+}
+
+pub fn getUprobeType() !u32 {
+    const fil = try std.fs.openFileAbsolute("/sys/bus/event_source/devices/uprobe/type", .{});
+    defer fil.close();
+
+    const reader = fil.reader();
+    var buf = [1]u8{0} ** 32;
+    const line = (try reader.readUntilDelimiterOrEof(&buf, '\n')) orelse return error.FEEL;
+    return std.fmt.parseInt(u32, line, 10);
+}
+
 pub fn main() !void {
     const good_prog = [_]Insn{
         Insn.mov(.r0, 3),
         Insn.exit(),
     };
-
+    var uprobe_type = try getUprobeType();
+    p("proben: {}\n", .{uprobe_type});
     const prog = try BPF.prog_load(.socket_filter, &good_prog, null, "MIT", 0);
+    _ = try attach_uprobe(uprobe_type);
     const retval = try prog_test_run(prog);
     p("RETURNERA: {}\n", .{retval});
     defer std.os.close(prog);
