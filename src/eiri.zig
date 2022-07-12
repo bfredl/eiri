@@ -36,7 +36,7 @@ pub fn prog_test_run(
     };
 }
 
-pub fn attach_uprobe(uprobe_type: u32) !fd_t {
+pub fn attach_uprobe(uprobe_type: u32, uprobe_path: [:0]const u8, uprobe_offset: u64) !fd_t {
     // TODO: .size should be the default (stage2 bug)
     var attr = linux.perf_event_attr{ .size = @sizeOf(linux.perf_event_attr) };
 
@@ -46,6 +46,10 @@ pub fn attach_uprobe(uprobe_type: u32) !fd_t {
     // the type value is dynamic and might be outside the defined values of
     // PERF.TYPE. praxis or zig std correctness issue
     attr.type = @intToEnum(linux.PERF.TYPE, uprobe_type);
+    attr.sample_period_or_freq = 1;
+    attr.wakeup_events_or_watermark = 1;
+    attr.config1 = @ptrToInt(uprobe_path.ptr);
+    attr.config2 = uprobe_offset;
 
     const rc = linux.perf_event_open(&attr, 0, -1, 0, 0);
     return switch (errno(rc)) {
@@ -76,7 +80,7 @@ pub fn main() !void {
     var uprobe_type = try getUprobeType();
     p("proben: {}\n", .{uprobe_type});
     const prog = try BPF.prog_load(.socket_filter, &good_prog, null, "MIT", 0);
-    _ = try attach_uprobe(uprobe_type);
+    _ = try attach_uprobe(uprobe_type, "", 0x0);
     const retval = try prog_test_run(prog);
     p("RETURNERA: {}\n", .{retval});
     defer std.os.close(prog);
