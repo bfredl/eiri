@@ -19,6 +19,20 @@ header: elf.Header,
 shstrtab: ?[]u8 = null,
 symtab: ?[]elf.Elf64_Sym = null,
 strtab: ?[]u8 = null,
+note_std: ?[]align(4) u8 = null,
+
+const Stapsdt_hdr = struct {
+    pc: u64,
+    base_adr: u64,
+    semaphore: u64,
+};
+
+const Stapsdt = struct {
+    h: Stapsdt_hdr,
+    provider: []const u8,
+    name: []const u8,
+    argdesc: []const u8,
+};
 
 pub fn init(elf_file: File) !Self {
     const stat = try os.fstat(elf_file.handle);
@@ -79,21 +93,36 @@ pub fn init(elf_file: File) !Self {
     }
 
     if (note_sdt) |note| {
-        const notemem = file_bytes[note.sh_offset..][0..note.sh_size];
-        const header = @ptrCast(*elf.Elf64_Nhdr, notemem.ptr);
-        p("note header {}\n", .{header});
-        const hlen = @sizeOf(elf.Elf64_Nhdr);
-        const name = notemem[hlen..][0..header.n_namesz];
-        const nlen = mem.alignForward(header.n_namesz, 4);
-        p("namm {s}\n", .{name});
-        var desc = notemem[hlen + nlen ..][0..header.n_descsz];
-        p("note {s}\n", .{desc});
+        self.note_std = file_bytes[note.sh_offset..][0..note.sh_size];
     }
     return self;
 }
 
 pub fn deinit(self: Self) void {
     os.munmap(self.file_bytes);
+}
+
+pub fn get_sdts(self: *const Self) ?Stapsdt {
+    const notemem = self.note_std orelse return null;
+    const header = @ptrCast(*elf.Elf64_Nhdr, notemem.ptr);
+    p("note header {}\n", .{header});
+    const hlen = @sizeOf(elf.Elf64_Nhdr);
+    const notename = notemem[hlen..][0..header.n_namesz];
+    const nlen = mem.alignForward(header.n_namesz, 4);
+    p("namm {s}\n", .{notename});
+    var desc = notemem[hlen + nlen ..][0..header.n_descsz];
+    p("note {s}\n", .{desc});
+    var phdr: Stapsdt_hdr = undefined;
+    mem.copy(u8, mem.asBytes(&phdr), desc[0..@sizeOf(Stapsdt_hdr)]);
+    p("sdt header {s}\n", .{phdr});
+    const provider = mem.sliceTo(desc[@sizeOf(Stapsdt_hdr)..], 0);
+    p("sdt provider {s}\n", .{provider});
+    const namebase = @sizeOf(Stapsdt_hdr) + provider.len + 1;
+    const name = mem.sliceTo(desc[namebase..], 0);
+    p("sdt name {s}\n", .{name});
+    const argdesc = mem.sliceTo(desc[namebase + name.len + 1 ..], 0);
+    p("sdt argdesc {s}\n", .{argdesc});
+    return Stapsdt{ .h = phdr, .provider = provider, .name = name, .argdesc = argdesc };
 }
 
 pub fn main() !void {
@@ -109,5 +138,6 @@ pub fn main() !void {
             p("{s}: {}\n", .{ name, sym.st_size });
         }
     }
+    _ = self.get_sdts();
     defer self.deinit();
 }
