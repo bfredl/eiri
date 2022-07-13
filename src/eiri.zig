@@ -1,20 +1,19 @@
 const std = @import("std");
+const ElfSymbols = @import("./ElfSymbols.zig");
 const linux = std.os.linux;
 const BPF = linux.BPF;
 const Insn = BPF.Insn;
-
 const io = std.io;
-
+const mem = std.mem;
 const fd_t = linux.fd_t;
 const errno = linux.getErrno;
-
 const p = std.debug.print;
 
 pub fn prog_test_run(
     prog: fd_t,
 ) !u32 {
     var attr = BPF.Attr{
-        .test_run = std.mem.zeroes(BPF.TestRunAttr),
+        .test_run = mem.zeroes(BPF.TestRunAttr),
     };
 
     attr.test_run.prog_fd = prog;
@@ -73,6 +72,12 @@ pub fn getUprobeType() !u32 {
 }
 
 pub fn main() !void {
+    const arg = mem.span(std.os.argv[1]);
+    const elf = try ElfSymbols.init(try std.fs.cwd().openFile(arg, .{}));
+    const sdt = elf.get_sdts().?;
+    _ = sdt;
+    defer elf.deinit();
+
     const good_prog = [_]Insn{
         Insn.mov(.r0, 3),
         Insn.exit(),

@@ -70,7 +70,7 @@ pub fn init(elf_file: File) !Self {
     var section_headers = elf_hdr.section_header_iterator(&stream);
     while (try section_headers.next()) |section| {
         const name = if (self.shstrtab) |s| mem.span(@ptrCast([*:0]const u8, &s[section.sh_name])) else "??";
-        p("{s}: off {} size {} typ {}\n", .{ name, section.sh_offset, section.sh_size, section.sh_type });
+        // p("{s}: off {} size {} typ {}\n", .{ name, section.sh_offset, section.sh_size, section.sh_type });
         if (section.sh_type == elf.SHT_SYMTAB) {
             symtab = section;
             // TODO: figure out how to actually find the right strtab
@@ -95,6 +95,18 @@ pub fn init(elf_file: File) !Self {
     if (note_sdt) |note| {
         self.note_std = file_bytes[note.sh_offset..][0..note.sh_size];
     }
+
+    if (false) {
+        var index: usize = 0;
+        while (index < 5000) : (index += 1) {
+            var sym = self.symtab.?[index];
+            // TODO: when is this?
+            if (false and sym.st_name > 1 and sym.st_name < self.strtab.?.len) {
+                var name = mem.sliceTo(self.strtab.?[sym.st_name - 2 ..], 0);
+                p("{s}: {}\n", .{ name, sym.st_size });
+            }
+        }
+    }
     return self;
 }
 
@@ -111,7 +123,6 @@ pub fn get_sdts(self: *const Self) ?Stapsdt {
     const nlen = mem.alignForward(header.n_namesz, 4);
     p("namm {s}\n", .{notename});
     var desc = notemem[hlen + nlen ..][0..header.n_descsz];
-    p("note {s}\n", .{desc});
     var phdr: Stapsdt_hdr = undefined;
     mem.copy(u8, mem.asBytes(&phdr), desc[0..@sizeOf(Stapsdt_hdr)]);
     p("sdt header {s}\n", .{phdr});
@@ -123,21 +134,4 @@ pub fn get_sdts(self: *const Self) ?Stapsdt {
     const argdesc = mem.sliceTo(desc[namebase + name.len + 1 ..], 0);
     p("sdt argdesc {s}\n", .{argdesc});
     return Stapsdt{ .h = phdr, .provider = provider, .name = name, .argdesc = argdesc };
-}
-
-pub fn main() !void {
-    const arg = mem.span(std.os.argv[1]);
-    const self = try init(try std.fs.cwd().openFile(arg, .{}));
-
-    var index: usize = 0;
-    while (index < 5000) : (index += 1) {
-        var sym = self.symtab.?[index];
-        // TODO: when is this?
-        if (false and sym.st_name > 1 and sym.st_name < self.strtab.?.len) {
-            var name = mem.sliceTo(self.strtab.?[sym.st_name - 2 ..], 0);
-            p("{s}: {}\n", .{ name, sym.st_size });
-        }
-    }
-    _ = self.get_sdts();
-    defer self.deinit();
 }
