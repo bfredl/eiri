@@ -36,16 +36,16 @@ pub fn prog_test_run(
     };
 }
 
-pub fn prog_attach(
-    target: fd_t,
-    prog: fd_t,
-) !u32 {
+pub fn prog_attach_perf(target: fd_t, prog: fd_t) !u32 {
     var attr = BPF.Attr{
         .prog_attach = mem.zeroes(BPF.ProgAttachAttr),
     };
 
+    const BPF_PERF_EVENT = 41;
+
     attr.prog_attach.target_fd = target;
     attr.prog_attach.attach_bpf_fd = prog;
+    attr.prog_attach.attach_type = BPF_PERF_EVENT;
 
     const rc = linux.bpf(.prog_attach, &attr, @sizeOf(BPF.ProgAttachAttr));
     // TODO: check the docs for actually expected errors
@@ -111,17 +111,31 @@ pub fn main() !void {
     _ = sdt;
     defer elf.deinit();
 
-    const good_prog = [_]Insn{
-        Insn.mov(.r0, 3),
-        Insn.exit(),
+    const map = try BPF.map_create(.array, 4, 8, 1);
+
+    const I = Insn;
+    const uprobe_prog = [_]Insn{
+        I.mov(.r0, 0),
+        I.stx(.word, .r10, -4, .r0), // word [r10-4] = 0
+        I.mov(.r2, .r10),
+        I.add(.r2, -4), //              r2 = r10-4
+        I.ld_map_fd1(.r1, map), //      r1 = load_map(map)
+        I.call(.map_lookup_elem), //    r0 = lookup(r1, r2)
+        I.jeq(.r0, 0, 2), //      if (r0 != 0) {
+        I.mov(.r1, 1),
+        // TODO: UGLY, add Inst.atomic_op to stdlib BPF module
+        I.xadd(.r0, .r1), //              dword [r0] += 0 (atomic)
+        //                              }
+        I.exit(),
     };
     var uprobe_type = try getUprobeType();
     p("proben: {}\n", .{uprobe_type});
-    const prog = try BPF.prog_load(.kprobe, &good_prog, null, "MIT", 0);
+    const prog = try BPF.prog_load(.kprobe, &uprobe_prog, null, "MIT", 0);
     const probe_fd = try perf_open_uprobe(uprobe_type, arg, sdt.h.pc);
 
     p("probe_fd: {}\n", .{probe_fd});
-    // _ = try prog_attach(probe_fd, prog);
+    // TODO: would be nice if this works so we don't need ioctls..
+    // _ = try prog_attach_perf(probe_fd, prog);
     try perf_attach_bpf(probe_fd, prog);
 
     // doesn't work on kprobe programs (more context needed?)
