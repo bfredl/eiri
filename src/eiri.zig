@@ -121,7 +121,7 @@ pub fn main() !void {
         I.add(.r2, -4), //              r2 = r10-4
         I.ld_map_fd1(.r1, map), //      r1 = load_map(map)
         I.call(.map_lookup_elem), //    r0 = lookup(r1, r2)
-        I.jeq(.r0, 0, 2), //      if (r0 != 0) {
+        I.jeq(.r0, 0, 2), //            if (r0 != 0) {
         I.mov(.r1, 1),
         // TODO: UGLY, add Inst.atomic_op to stdlib BPF module
         I.xadd(.r0, .r1), //              dword [r0] += 0 (atomic)
