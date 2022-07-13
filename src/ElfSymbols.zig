@@ -21,7 +21,7 @@ symtab: ?[]elf.Elf64_Sym = null,
 strtab: ?[]u8 = null,
 note_std: ?[]align(4) u8 = null,
 
-const Stapsdt_hdr = struct {
+const Stapsdt_hdr = extern struct {
     pc: u64,
     base_adr: u64,
     semaphore: u64,

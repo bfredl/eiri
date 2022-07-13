@@ -2,6 +2,7 @@ const std = @import("std");
 const ElfSymbols = @import("./ElfSymbols.zig");
 const linux = std.os.linux;
 const BPF = linux.BPF;
+const PERF = linux.PERF;
 const Insn = BPF.Insn;
 const io = std.io;
 const mem = std.mem;
@@ -35,7 +36,39 @@ pub fn prog_test_run(
     };
 }
 
-pub fn attach_uprobe(uprobe_type: u32, uprobe_path: [:0]const u8, uprobe_offset: u64) !fd_t {
+pub fn prog_attach(
+    target: fd_t,
+    prog: fd_t,
+) !u32 {
+    var attr = BPF.Attr{
+        .prog_attach = mem.zeroes(BPF.ProgAttachAttr),
+    };
+
+    attr.prog_attach.target_fd = target;
+    attr.prog_attach.attach_bpf_fd = prog;
+
+    const rc = linux.bpf(.prog_attach, &attr, @sizeOf(BPF.ProgAttachAttr));
+    // TODO: check the docs for actually expected errors
+    return switch (errno(rc)) {
+        .SUCCESS => attr.test_run.retval,
+        .ACCES => error.UnsafeProgram,
+        .FAULT => error.BPFProgramFault,
+        .INVAL => error.InvalidArgument,
+        .PERM => error.AccessDenied,
+        else => |err| std.os.unexpectedErrno(err),
+    };
+}
+
+pub fn perf_attach_bpf(target: fd_t, prog: fd_t) !void {
+    if (linux.ioctl(target, PERF.EVENT_IOC.SET_BPF, @intCast(u64, prog)) < 0) {
+        return error.Failed_IOC_SET_BPF;
+    }
+    if (linux.ioctl(target, PERF.EVENT_IOC.ENABLE, 0) < 0) {
+        return error.Failed_IOC_ENABLE;
+    }
+}
+
+pub fn perf_open_uprobe(uprobe_type: u32, uprobe_path: [:0]const u8, uprobe_offset: u64) !fd_t {
     // TODO: .size should be the default (stage2 bug)
     var attr = linux.perf_event_attr{ .size = @sizeOf(linux.perf_event_attr) };
 
@@ -44,13 +77,13 @@ pub fn attach_uprobe(uprobe_type: u32, uprobe_path: [:0]const u8, uprobe_offset:
 
     // the type value is dynamic and might be outside the defined values of
     // PERF.TYPE. praxis or zig std correctness issue
-    attr.type = @intToEnum(linux.PERF.TYPE, uprobe_type);
+    attr.type = @intToEnum(PERF.TYPE, uprobe_type);
     attr.sample_period_or_freq = 1;
     attr.wakeup_events_or_watermark = 1;
     attr.config1 = @ptrToInt(uprobe_path.ptr);
     attr.config2 = uprobe_offset;
 
-    const rc = linux.perf_event_open(&attr, 0, -1, 0, 0);
+    const rc = linux.perf_event_open(&attr, -1, 0, -1, 0);
     return switch (errno(rc)) {
         .SUCCESS => @intCast(fd_t, rc),
         .ACCES => error.UnsafeProgram,
@@ -84,9 +117,15 @@ pub fn main() !void {
     };
     var uprobe_type = try getUprobeType();
     p("proben: {}\n", .{uprobe_type});
-    const prog = try BPF.prog_load(.socket_filter, &good_prog, null, "MIT", 0);
-    _ = try attach_uprobe(uprobe_type, "", 0x0);
-    const retval = try prog_test_run(prog);
-    p("RETURNERA: {}\n", .{retval});
+    const prog = try BPF.prog_load(.kprobe, &good_prog, null, "MIT", 0);
+    const probe_fd = try perf_open_uprobe(uprobe_type, arg, sdt.h.pc);
+
+    p("probe_fd: {}\n", .{probe_fd});
+    // _ = try prog_attach(probe_fd, prog);
+    try perf_attach_bpf(probe_fd, prog);
+
+    // doesn't work on kprobe programs (more context needed?)
+    // const retval = try prog_test_run(prog);
+    // p("RETURNERA: {}\n", .{retval});
     defer std.os.close(prog);
 }
