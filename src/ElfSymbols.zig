@@ -52,15 +52,19 @@ pub fn init(elf_file: File) !Self {
 
     var symtab: ?elf.Elf64_Shdr = null;
     var strtab: ?elf.Elf64_Shdr = null;
+    var note_sdt: ?elf.Elf64_Shdr = null;
     var section_headers = elf_hdr.section_header_iterator(&stream);
     while (try section_headers.next()) |section| {
-        // const name = if (shstrtab) |s| mem.span(@ptrCast([*:0]const u8, &s[section.sh_name])) else "??";
-        // p("{s}: off {} size {} typ {}\n", .{ name, section.sh_offset, section.sh_size, section.sh_type });
+        const name = if (self.shstrtab) |s| mem.span(@ptrCast([*:0]const u8, &s[section.sh_name])) else "??";
+        p("{s}: off {} size {} typ {}\n", .{ name, section.sh_offset, section.sh_size, section.sh_type });
         if (section.sh_type == elf.SHT_SYMTAB) {
             symtab = section;
             // TODO: figure out how to actually find the right strtab
         } else if (section.sh_type == elf.SHT_STRTAB and strtab == null) {
             strtab = section;
+            // TODO: check all notes for NT_STAPSDT, name might not be stable?
+        } else if (mem.eql(u8, name, ".note.stapsdt")) {
+            note_sdt = section;
         }
     }
     if (symtab) |st| {
@@ -72,6 +76,18 @@ pub fn init(elf_file: File) !Self {
 
     if (strtab) |st| {
         self.strtab = file_bytes[st.sh_offset..][0..st.sh_size];
+    }
+
+    if (note_sdt) |note| {
+        const notemem = file_bytes[note.sh_offset..][0..note.sh_size];
+        const header = @ptrCast(*elf.Elf64_Nhdr, notemem.ptr);
+        p("note header {}\n", .{header});
+        const hlen = @sizeOf(elf.Elf64_Nhdr);
+        const name = notemem[hlen..][0..header.n_namesz];
+        const nlen = mem.alignForward(header.n_namesz, 4);
+        p("namm {s}\n", .{name});
+        var desc = notemem[hlen + nlen ..][0..header.n_descsz];
+        p("note {s}\n", .{desc});
     }
     return self;
 }
@@ -88,7 +104,7 @@ pub fn main() !void {
     while (index < 5000) : (index += 1) {
         var sym = self.symtab.?[index];
         // TODO: when is this?
-        if (sym.st_name > 1 and sym.st_name < self.strtab.?.len) {
+        if (false and sym.st_name > 1 and sym.st_name < self.strtab.?.len) {
             var name = mem.sliceTo(self.strtab.?[sym.st_name - 2 ..], 0);
             p("{s}: {}\n", .{ name, sym.st_size });
         }
