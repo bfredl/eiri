@@ -64,7 +64,6 @@ pub fn main() !void {
     defer elf.deinit();
 
     const map = try BPF.map_create(.array, 4, 8, 1);
-    p("MAPPA {}\n", .{map});
 
     const I = Insn;
     const uprobe_prog = [_]Insn{
@@ -89,11 +88,9 @@ pub fn main() !void {
         return err;
     };
 
-    var uprobe_type = try getUprobeType();
-    p("proben: {}\n", .{uprobe_type});
+    const uprobe_type = try getUprobeType();
     const probe_fd = try perf_open_uprobe(uprobe_type, arg, sdt.h.pc);
 
-    p("probe_fd: {}\n", .{probe_fd});
     // TODO: would be nice if this works so we don't need ioctls..
     // _ = try bpfUtil.prog_attach_perf(probe_fd, prog);
     try perf_attach_bpf(probe_fd, prog);
