@@ -146,6 +146,18 @@ pub fn main() !void {
     // _ = try prog_attach_perf(probe_fd, prog);
     try perf_attach_bpf(probe_fd, prog);
 
+    var lastval: u64 = @truncate(u64, -1);
+    while (true) {
+        const key: u32 = 0;
+        var value: u64 = undefined;
+        try BPF.map_lookup_elem(map, mem.asBytes(&key), mem.asBytes(&value));
+        if (value < lastval or value > lastval + 1000) {
+            p("VALUE: {}. That's NUMBERWANG!\n", .{value});
+            lastval = value;
+        }
+        std.time.sleep(1e9);
+    }
+
     // doesn't work on kprobe programs (more context needed?)
     // const retval = try prog_test_run(prog);
     // p("RETURNERA: {}\n", .{retval});
