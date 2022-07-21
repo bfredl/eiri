@@ -11,6 +11,8 @@ const fd_t = linux.fd_t;
 const errno = linux.getErrno;
 const p = std.debug.print;
 
+const allocator = std.testing.allocator;
+
 pub fn perf_attach_bpf(target: fd_t, prog: fd_t) !void {
     if (linux.ioctl(target, PERF.EVENT_IOC.SET_BPF, @intCast(u64, prog)) < 0) {
         return error.Failed_IOC_SET_BPF;
@@ -59,8 +61,14 @@ pub fn getUprobeType() !u32 {
 pub fn main() !void {
     const arg = mem.span(std.os.argv[1]);
     const elf = try ElfSymbols.init(try std.fs.cwd().openFile(arg, .{}));
-    const sdt = elf.get_sdts().?;
-    _ = sdt;
+    const sdts = try elf.get_sdts(allocator);
+    defer sdts.deinit();
+
+    for (sdts.items) |i| {
+        p("IYTEM: {} {s} {s} {s}\n", .{ i.h, i.provider, i.name, i.argdesc });
+    }
+    const sdt = sdts.items[0];
+
     defer elf.deinit();
 
     const map = try BPF.map_create(.array, 4, 8, 1);

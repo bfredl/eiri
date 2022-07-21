@@ -8,6 +8,7 @@ const fs = std.fs;
 const os = std.os;
 const io = std.io;
 const p = std.debug.print;
+const ArrayList = std.ArrayList;
 
 // code derived on elf handling routines in zig stdlib,
 // like build/InstallRawStep.zig and dynamic_library.zig
@@ -70,7 +71,6 @@ pub fn init(elf_file: File) !Self {
     var section_headers = elf_hdr.section_header_iterator(&stream);
     while (try section_headers.next()) |section| {
         const name = if (self.shstrtab) |s| mem.span(@ptrCast([*:0]const u8, &s[section.sh_name])) else "??";
-        // p("{s}: off {} size {} typ {}\n", .{ name, section.sh_offset, section.sh_size, section.sh_type });
         if (section.sh_type == elf.SHT_SYMTAB) {
             symtab = section;
             // TODO: figure out how to actually find the right strtab
@@ -78,6 +78,7 @@ pub fn init(elf_file: File) !Self {
             strtab = section;
             // TODO: check all notes for NT_STAPSDT, name might not be stable?
         } else if (mem.eql(u8, name, ".note.stapsdt")) {
+            p("STADPS: {}\n", .{section});
             note_sdt = section;
         }
     }
@@ -114,24 +115,35 @@ pub fn deinit(self: Self) void {
     os.munmap(self.file_bytes);
 }
 
-pub fn get_sdts(self: *const Self) ?Stapsdt {
-    const notemem = self.note_std orelse return null;
-    const header = @ptrCast(*elf.Elf64_Nhdr, notemem.ptr);
-    p("note header {}\n", .{header});
+pub fn get_sdts(self: *const Self, allocator: Allocator) !ArrayList(Stapsdt) {
+    var list = ArrayList(Stapsdt).init(allocator);
+
+    const notemem = self.note_std orelse return list;
+    var nextmem = notemem[0..];
     const hlen = @sizeOf(elf.Elf64_Nhdr);
-    const notename = notemem[hlen..][0..header.n_namesz];
-    const nlen = mem.alignForward(header.n_namesz, 4);
-    p("namm {s}\n", .{notename});
-    var desc = notemem[hlen + nlen ..][0..header.n_descsz];
-    var phdr: Stapsdt_hdr = undefined;
-    mem.copy(u8, mem.asBytes(&phdr), desc[0..@sizeOf(Stapsdt_hdr)]);
-    p("sdt header {s}\n", .{phdr});
-    const provider = mem.sliceTo(desc[@sizeOf(Stapsdt_hdr)..], 0);
-    p("sdt provider {s}\n", .{provider});
-    const namebase = @sizeOf(Stapsdt_hdr) + provider.len + 1;
-    const name = mem.sliceTo(desc[namebase..], 0);
-    p("sdt name {s}\n", .{name});
-    const argdesc = mem.sliceTo(desc[namebase + name.len + 1 ..], 0);
-    p("sdt argdesc {s}\n", .{argdesc});
-    return Stapsdt{ .h = phdr, .provider = provider, .name = name, .argdesc = argdesc };
+    while (nextmem.len >= hlen) {
+        p("LENNY: {}\n", .{nextmem.len});
+        const header = @ptrCast(*elf.Elf64_Nhdr, nextmem.ptr);
+        p("note header {}\n", .{header});
+        const notename = nextmem[hlen..][0..header.n_namesz];
+        const nlen = mem.alignForward(header.n_namesz, 4);
+        p("namm {s}\n", .{notename});
+
+        var desc = nextmem[hlen + nlen ..][0..header.n_descsz];
+        var phdr: Stapsdt_hdr = undefined;
+        mem.copy(u8, mem.asBytes(&phdr), desc[0..@sizeOf(Stapsdt_hdr)]);
+        p("sdt header {s}\n", .{phdr});
+        const provider = mem.sliceTo(desc[@sizeOf(Stapsdt_hdr)..], 0);
+        p("sdt provider {s}\n", .{provider});
+        const namebase = @sizeOf(Stapsdt_hdr) + provider.len + 1;
+        const name = mem.sliceTo(desc[namebase..], 0);
+        p("sdt name {s}\n", .{name});
+        const argdesc = mem.sliceTo(desc[namebase + name.len + 1 ..], 0);
+        p("sdt argdesc {s}\n", .{argdesc});
+        try list.append(Stapsdt{ .h = phdr, .provider = provider, .name = name, .argdesc = argdesc });
+
+        const dlen = mem.alignForward(header.n_descsz, 4);
+        nextmem = nextmem[hlen + nlen + dlen ..];
+    }
+    return list;
 }
