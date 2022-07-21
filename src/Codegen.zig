@@ -1,16 +1,22 @@
 const std = @import("std");
 const mem = std.mem;
 const FLIR = @import("./FLIR.zig");
+const bpfUtil = @import("./bpfUtil.zig");
 const print = std.debug.print;
-const CFO = @import("./CFO.zig");
-const IPReg = CFO.IPReg;
-const VMathOp = CFO.VMathOp;
 const Inst = FLIR.Inst;
 const uv = FLIR.uv;
+const linux = std.os.linux;
+const BPF = linux.BPF;
+const IPReg = BPF.Insn.Reg;
 
-fn regmovmc(cfo: *CFO, dst: IPReg, src: Inst) !void {
+const ArrayList = std.ArrayList;
+
+code: ArrayList(BPF.Insn),
+const Self = @This();
+
+fn regmovmc(cfo: *Self, dst: IPReg, src: Inst) !void {
     switch (src.mckind) {
-        .frameslot => try cfo.movrm(dst, CFO.a(.rbp).o(-8 * @as(i32, src.mcidx))),
+        .frameslot => try cfo.movrm(dst, Self.a(.rbp).o(-8 * @as(i32, src.mcidx))),
         .ipreg => {
             const reg = @intToEnum(IPReg, src.mcidx);
             if (dst != reg) try cfo.mov(dst, reg);
@@ -28,9 +34,9 @@ fn regmovmc(cfo: *CFO, dst: IPReg, src: Inst) !void {
     }
 }
 
-fn regaritmc(cfo: *CFO, op: CFO.AOp, dst: IPReg, i: Inst) !void {
+fn regaritmc(cfo: *Self, op: bpfUtil.AluOp, dst: IPReg, i: Inst) !void {
     switch (i.mckind) {
-        .frameslot => try cfo.aritrm(op, dst, CFO.a(.rbp).o(-8 * @as(i32, i.mcidx))),
+        .frameslot => try cfo.aritrm(op, dst, Self.a(.rbp).o(-8 * @as(i32, i.mcidx))),
         .ipreg => {
             const reg = @intToEnum(IPReg, i.mcidx);
             try cfo.arit(op, dst, reg);
@@ -44,9 +50,9 @@ fn regaritmc(cfo: *CFO, op: CFO.AOp, dst: IPReg, i: Inst) !void {
     }
 }
 
-fn mcmovreg(cfo: *CFO, dst: Inst, src: IPReg) !void {
+fn mcmovreg(cfo: *Self, dst: Inst, src: IPReg) !void {
     switch (dst.mckind) {
-        .frameslot => try cfo.movmr(CFO.a(.rbp).o(-8 * @as(i32, dst.mcidx)), .rax),
+        .frameslot => try cfo.movmr(Self.a(.rbp).o(-8 * @as(i32, dst.mcidx)), .rax),
         .ipreg => {
             const reg = @intToEnum(IPReg, dst.mcidx);
             if (reg != src) try cfo.mov(reg, src);
@@ -55,9 +61,9 @@ fn mcmovreg(cfo: *CFO, dst: Inst, src: IPReg) !void {
     }
 }
 
-fn mcmovi(cfo: *CFO, i: Inst) !void {
+fn mcmovi(cfo: *Self, i: Inst) !void {
     switch (i.mckind) {
-        .frameslot => try cfo.movmi(CFO.a(.rbp).o(-8 * @as(i32, i.mcidx)), i.op1),
+        .frameslot => try cfo.movmi(Self.a(.rbp).o(-8 * @as(i32, i.mcidx)), i.op1),
         .ipreg => {
             const reg = @intToEnum(IPReg, i.mcidx);
             if (i.op1 != 0) {
@@ -73,7 +79,7 @@ fn mcmovi(cfo: *CFO, i: Inst) !void {
 }
 
 // TODO: obviously better handling of scratch register
-fn movmcs(cfo: *CFO, dst: Inst, src: Inst, scratch: IPReg) !void {
+fn movmcs(cfo: *Self, dst: Inst, src: Inst, scratch: IPReg) !void {
     if (dst.mckind == src.mckind and dst.mcidx == src.mcidx) {
         return;
     }
@@ -90,7 +96,7 @@ fn movmcs(cfo: *CFO, dst: Inst, src: Inst, scratch: IPReg) !void {
     }
 }
 
-pub fn makejmp(self: *FLIR, cfo: *CFO, cond: ?CFO.Cond, ni: u16, si: u1, labels: []u32, targets: [][2]u32) !void {
+pub fn makejmp(self: *FLIR, cfo: *Self, cond: ?bpfUtil.JmpOp, ni: u16, si: u1, labels: []u32, targets: [][2]u32) !void {
     const succ = self.n.items[ni].s[si];
     // NOTE: we assume blk 0 always has the prologue (push rbp; mov rbp, rsp)
     // at least, so that even if blk 0 is empty, blk 1 has target larger than 0x00
@@ -101,7 +107,7 @@ pub fn makejmp(self: *FLIR, cfo: *CFO, cond: ?CFO.Cond, ni: u16, si: u1, labels:
     }
 }
 
-pub fn codegen(self: *FLIR, cfo: *CFO) !u32 {
+pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
     var labels = try self.a.alloc(u32, self.dfs.items.len);
     var targets = try self.a.alloc([2]u32, self.dfs.items.len);
     defer self.a.free(labels);
@@ -136,7 +142,7 @@ pub fn codegen(self: *FLIR, cfo: *CFO) !u32 {
         }
 
         var cur_blk: ?u16 = n.firstblk;
-        var ea_fused: CFO.EAddr = undefined;
+        var ea_fused: Self.EAddr = undefined;
         var fused_inst: ?*Inst = null;
         while (cur_blk) |blk| {
             var b = &self.b.items[blk];
@@ -151,7 +157,7 @@ pub fn codegen(self: *FLIR, cfo: *CFO) !u32 {
                     .iop => {
                         const dst = i.ipreg() orelse .rax;
                         try regmovmc(cfo, dst, self.iref(i.op1).?.*);
-                        try regaritmc(cfo, @intToEnum(CFO.AOp, i.spec), dst, self.iref(i.op2).?.*);
+                        try regaritmc(cfo, @intToEnum(bpfUtil.AluOp, i.spec), dst, self.iref(i.op2).?.*);
                         try mcmovreg(cfo, i.*, dst); // elided if dst is register
                     },
                     .constant => try mcmovi(cfo, i.*),
@@ -169,7 +175,7 @@ pub fn codegen(self: *FLIR, cfo: *CFO) !u32 {
                         // TODO: spill spall supllit?
                         const base = self.iref(i.op1).?.ipreg() orelse unreachable;
                         const idx = self.iref(i.op2).?.ipreg() orelse unreachable;
-                        const eaddr = CFO.qi(base, idx);
+                        const eaddr = Self.qi(base, idx);
                         if (i.spec_type() == .intptr) {
                             const dst = i.ipreg() orelse .rax;
                             try cfo.movrm(dst, eaddr);
@@ -183,13 +189,13 @@ pub fn codegen(self: *FLIR, cfo: *CFO) !u32 {
                         // TODO: spill spall supllit?
                         const base = self.iref(i.op1).?.ipreg() orelse unreachable;
                         const idx = self.iref(i.op2).?.ipreg() orelse unreachable;
-                        const eaddr = CFO.qi(base, idx);
+                        const eaddr = Self.qi(base, idx);
                         if (i.mckind == .fused) {
                             ea_fused = eaddr;
                             was_fused = true;
                         } else {
                             const dst = i.ipreg() orelse .rax;
-                            try cfo.lea(dst, CFO.qi(base, idx));
+                            try cfo.lea(dst, Self.qi(base, idx));
                             try mcmovreg(cfo, i.*, dst); // elided if dst is register
                         }
                     },
@@ -199,7 +205,7 @@ pub fn codegen(self: *FLIR, cfo: *CFO) !u32 {
                         const eaddr = if (addr == fused_inst)
                             ea_fused
                         else
-                            CFO.a(self.iref(i.op1).?.ipreg() orelse unreachable);
+                            Self.a(self.iref(i.op1).?.ipreg() orelse unreachable);
                         const val = self.iref(i.op2).?;
                         if (val.res_type().? == .intptr) {
                             unreachable;
