@@ -59,15 +59,22 @@ pub fn getUprobeType() !u32 {
 }
 
 pub fn main() !void {
-    const arg = mem.span(std.os.argv[1]);
-    const elf = try ElfSymbols.init(try std.fs.cwd().openFile(arg, .{}));
+    const fname = mem.span(std.os.argv[1]);
+    const sdtname = mem.span(std.os.argv[2]);
+
+    const elf = try ElfSymbols.init(try std.fs.cwd().openFile(fname, .{}));
     const sdts = try elf.get_sdts(allocator);
     defer sdts.deinit();
 
-    for (sdts.items) |i| {
-        p("IYTEM: {} {s} {s} {s}\n", .{ i.h, i.provider, i.name, i.argdesc });
-    }
-    const sdt = sdts.items[0];
+    const sdt = thesdt: {
+        for (sdts.items) |i| {
+            p("IYTEM: {} {s} {s} {s}\n", .{ i.h, i.provider, i.name, i.argdesc });
+            if (mem.eql(u8, i.name, sdtname)) {
+                break :thesdt i;
+            }
+        }
+        return error.ProbeNotFound;
+    };
 
     defer elf.deinit();
 
@@ -97,7 +104,7 @@ pub fn main() !void {
     };
 
     const uprobe_type = try getUprobeType();
-    const probe_fd = try perf_open_uprobe(uprobe_type, arg, sdt.h.pc);
+    const probe_fd = try perf_open_uprobe(uprobe_type, fname, sdt.h.pc);
 
     // TODO: would be nice if this works so we don't need ioctls..
     // _ = try bpfUtil.prog_attach_perf(probe_fd, prog);
