@@ -55,3 +55,20 @@ pub fn prog_attach_perf(target: fd_t, prog: fd_t) !u32 {
         else => |err| std.os.unexpectedErrno(err),
     };
 }
+
+// these are private in BPF.Insn ..
+const AluOp = enum(u8) {
+    add = BPF.ADD,
+    sub = BPF.SUB,
+    mul = BPF.MUL,
+    div = BPF.DIV,
+    alu_or = BPF.OR,
+    alu_and = BPF.AND,
+    lsh = BPF.LSH,
+    rsh = BPF.RSH,
+    neg = BPF.NEG,
+    mod = BPF.MOD,
+    xor = BPF.XOR,
+    mov = BPF.MOV,
+    arsh = BPF.ARSH,
+};

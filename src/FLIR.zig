@@ -4,18 +4,16 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const Self = @This();
 const print = std.debug.print;
-const CFO = @import("./CFO.zig");
 const SSA_GVN = @import("./SSA_GVN.zig");
+const bpfUtil = @import("./bpfUtil.zig");
 
 const builtin = @import("builtin");
 // const stage2 = builtin.zig_backend != .stage1;
 const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 
-const IPReg = CFO.IPReg;
-const VMathOp = CFO.VMathOp;
-const FMode = CFO.FMode;
-const AOp = CFO.AOp;
+const IPReg = u4;
+const AluOp = bpfUtil.AluOp;
 
 a: Allocator,
 // TODO: unmanage all these:
@@ -99,7 +97,7 @@ pub const Inst = struct {
     // TODO: handle spec being split between u4 type and u4 somethingelse?
     pub fn spec_type(self: Inst) ValType {
         // TODO: jesus this is terrible
-        return if (self.spec >= TODO_INT_SPEC) .intptr else .avxval;
+        return if (self.spec >= TODO_INT_SPEC) .intptr else .fpval;
     }
 
     const TODO_INT_SPEC: u8 = 8;
@@ -107,13 +105,9 @@ pub const Inst = struct {
     const FMODE_MASK: u8 = (1 << 4) - 1;
     const VOP_MASK: u8 = ~FMODE_MASK;
 
-    pub fn vop(self: Inst) VMathOp {
-        return @intToEnum(VMathOp, (self.spec & VOP_MASK) >> 4);
-    }
-
-    pub fn fmode(self: Inst) FMode {
-        return @intToEnum(FMode, self.spec & FMODE_MASK);
-    }
+    // pub fn fmode(self: Inst) FMode {
+    //     return @intToEnum(FMode, self.spec & FMODE_MASK);
+    // }
 
     pub fn res_type(inst: Inst) ?ValType {
         return switch (inst.tag) {
@@ -129,8 +123,7 @@ pub const Inst = struct {
             .lea => .intptr, // Lea? Who's Lea??
             .store => null,
             .iop => .intptr,
-            .ilessthan => null, // technically the FLAG register but anyway
-            .vmath => .avxval,
+            .ilessthan => null,
             .ret => null,
         };
     }
@@ -139,9 +132,9 @@ pub const Inst = struct {
         return if (i.mckind == .ipreg) @intToEnum(IPReg, i.mcidx) else null;
     }
 
-    pub fn avxreg(i: Inst) ?u4 {
-        return if (i.mckind == .vfreg) @intCast(u4, i.mcidx) else null;
-    }
+    // pub fn avxreg(i: Inst) ?u4 {
+    //     return if (i.mckind == .vfreg) @intCast(u4, i.mcidx) else null;
+    // }
 };
 pub const Tag = enum(u8) {
     empty = 0, // empty slot. must not be refered to!
@@ -163,6 +156,7 @@ pub const Tag = enum(u8) {
     ilessthan, // icmp group?
     vmath,
     ret,
+    call,
 };
 
 pub const MCKind = enum(u8) {
@@ -228,7 +222,7 @@ pub fn n_op(tag: Tag, rw: bool) u2 {
 // TODO: expand into precise types, like "dword" or "4 packed doubles"
 const ValType = enum(u4) {
     intptr = 0,
-    avxval,
+    fpval,
 
     pub fn spec(self: @This()) u4 {
         return @enumToInt(self);
@@ -303,10 +297,6 @@ pub fn biref(self: *Self, ref: u16) ?BIREF {
 
 pub fn iref(self: *Self, ref: u16) ?*Inst {
     return if (self.biref(ref)) |bi| bi.i else null;
-}
-
-pub fn vspec(vop: VMathOp, fmode: FMode) u8 {
-    return (vop.off() << 4) | @as(u8, @enumToInt(fmode));
 }
 
 pub fn addNode(self: *Self) !u16 {
@@ -393,17 +383,7 @@ pub fn binop(self: *Self, node: u16, tag: Tag, op1: u16, op2: u16) !u16 {
     return self.addInst(node, .{ .tag = tag, .op1 = op1, .op2 = op2 });
 }
 
-// TODO: better abstraction for types (once we have real types)
-pub fn vbinop(self: *Self, node: u16, tag: Tag, fmode: FMode, op1: u16, op2: u16) !u16 {
-    return self.addInst(node, .{ .tag = tag, .op1 = op1, .op2 = op2, .spec = @enumToInt(fmode) });
-}
-
-pub fn vmath(self: *Self, node: u16, vop: VMathOp, fmode: FMode, op1: u16, op2: u16) !u16 {
-    // TODO: somewhere, typecheck that FMode matches fmode of args..
-    return self.addInst(node, .{ .tag = .vmath, .spec = vspec(vop, fmode), .op1 = op1, .op2 = op2 });
-}
-
-pub fn iop(self: *Self, node: u16, vop: AOp, op1: u16, op2: u16) !u16 {
+pub fn iop(self: *Self, node: u16, vop: AluOp, op1: u16, op2: u16) !u16 {
     return self.addInst(node, .{ .tag = .iop, .spec = vop.opx(), .op1 = op1, .op2 = op2 });
 }
 
@@ -818,7 +798,7 @@ pub fn calc_use(self: *Self) !void {
 
 pub fn alloc_arg(self: *Self, inst: *Inst) !void {
     _ = self;
-    const regs: [6]IPReg = .{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
+    const regs: [6]IPReg = .{ 1, 2, 3, 4, 5  };
     if (inst.op1 >= regs.len) return error.ARA;
     inst.mckind = .ipreg;
     inst.mcidx = regs[inst.op1].id();
@@ -827,8 +807,7 @@ pub fn alloc_arg(self: *Self, inst: *Inst) !void {
 // fills up some registers, and then goes to the stack.
 // reuses op1 if it is from the same block and we are the last user
 pub fn trivial_alloc(self: *Self) !void {
-    // TRRICKY: start with the ABI arg registers, and just skip as many args as we have
-    const regs: [8]IPReg = .{ .rdi, .rsi, .rdx, .rcx, .r8, .r9, .r10, .r11 };
+    const regs: [4]IPReg = .{ 6, 7, 8, 9 };
     var used: usize = self.narg;
     var avxused: u8 = 0;
     for (self.n.items) |*n| {
@@ -841,7 +820,7 @@ pub fn trivial_alloc(self: *Self) !void {
                 if (i.tag == .arg) {
                     try self.alloc_arg(i);
                 } else if (has_res(i.tag) and i.mckind.unallocated()) {
-                    const regkind: MCKind = if (i.res_type() == ValType.avxval) .vfreg else .ipreg;
+                    const regkind: MCKind = if (i.res_type() == ValType.fpval) .vfreg else .ipreg;
                     const op1 = if (n_op(i.tag, false) > 0) self.iref(i.op1) else null;
                     if (op1) |o| {
                         if (o.mckind == regkind and o.vreg == NoRef and o.last_use == ref) {
@@ -850,7 +829,7 @@ pub fn trivial_alloc(self: *Self) !void {
                             continue;
                         }
                     }
-                    if (i.res_type() == ValType.avxval) {
+                    if (i.res_type() == ValType.fpval) {
                         if (avxused == 16) {
                             return error.GOOOF;
                         }
@@ -903,7 +882,7 @@ pub fn scan_alloc(self: *Self) !void {
                     assert(active_ipreg[i.mcidx] <= ref);
                     active_ipreg[i.mcidx] = i.last_use;
                 } else if (has_res(i.tag) and i.mckind.unallocated()) {
-                    const is_avx = (i.res_type() == ValType.avxval);
+                    const is_avx = (i.res_type() == ValType.fpval);
                     const regkind: MCKind = if (is_avx) .vfreg else .ipreg;
                     const the_active = if (is_avx) &active_avx else &active_ipreg;
 
