@@ -78,7 +78,6 @@ pub fn init(elf_file: File) !Self {
             strtab = section;
             // TODO: check all notes for NT_STAPSDT, name might not be stable?
         } else if (mem.eql(u8, name, ".note.stapsdt")) {
-            p("STADPS: {}\n", .{section});
             note_sdt = section;
         }
     }
@@ -119,31 +118,27 @@ pub fn get_sdts(self: *const Self, allocator: Allocator) !ArrayList(Stapsdt) {
     var list = ArrayList(Stapsdt).init(allocator);
 
     const notemem = self.note_std orelse return list;
-    var nextmem = notemem[0..];
+    var itemmem = notemem[0..];
     const hlen = @sizeOf(elf.Elf64_Nhdr);
-    while (nextmem.len >= hlen) {
-        p("LENNY: {}\n", .{nextmem.len});
-        const header = @ptrCast(*elf.Elf64_Nhdr, nextmem.ptr);
-        p("note header {}\n", .{header});
-        const notename = nextmem[hlen..][0..header.n_namesz];
+    while (itemmem.len >= hlen) {
+        const header = @ptrCast(*elf.Elf64_Nhdr, itemmem.ptr);
+        const notename = itemmem[hlen..][0..header.n_namesz];
         const nlen = mem.alignForward(header.n_namesz, 4);
-        p("namm {s}\n", .{notename});
 
-        var desc = nextmem[hlen + nlen ..][0..header.n_descsz];
+        _ = notename; // TODO: check name == "stapsdt" ??
+
+        var desc = itemmem[hlen + nlen ..][0..header.n_descsz];
+        const dlen = mem.alignForward(header.n_descsz, 4);
+
         var phdr: Stapsdt_hdr = undefined;
         mem.copy(u8, mem.asBytes(&phdr), desc[0..@sizeOf(Stapsdt_hdr)]);
-        p("sdt header {s}\n", .{phdr});
         const provider = mem.sliceTo(desc[@sizeOf(Stapsdt_hdr)..], 0);
-        p("sdt provider {s}\n", .{provider});
         const namebase = @sizeOf(Stapsdt_hdr) + provider.len + 1;
         const name = mem.sliceTo(desc[namebase..], 0);
-        p("sdt name {s}\n", .{name});
         const argdesc = mem.sliceTo(desc[namebase + name.len + 1 ..], 0);
-        p("sdt argdesc {s}\n", .{argdesc});
         try list.append(Stapsdt{ .h = phdr, .provider = provider, .name = name, .argdesc = argdesc });
 
-        const dlen = mem.alignForward(header.n_descsz, 4);
-        nextmem = nextmem[hlen + nlen + dlen ..];
+        itemmem = itemmem[hlen + nlen + dlen ..];
     }
     return list;
 }
