@@ -8,11 +8,49 @@ const uv = FLIR.uv;
 const linux = std.os.linux;
 const BPF = linux.BPF;
 const IPReg = BPF.Insn.Reg;
+const Allocator = mem.Allocator;
+const fd_t = linux.fd_t;
 
 const ArrayList = std.ArrayList;
 
-code: ArrayList(BPF.Insn),
+const Insn = BPF.Insn;
+
+code: ArrayList(Insn),
 const Self = @This();
+
+pub fn get_target(self: *Self) u32 {
+    return @intCast(u32, self.code.items.len);
+}
+
+pub fn set_target(self: *Self, pos: u32) void {
+    var off = self.get_target() - (pos + 1);
+    self.code.items[pos].off = @intCast(i16, off);
+}
+
+pub fn put(self: *Self, insn: Insn) !void {
+    try self.code.append(insn);
+}
+
+pub fn ld_map_fd1(self: *Self, reg: IPReg, map_fd: fd_t) !void {
+    try self.put(Insn.ld_map_fd1(reg, map_fd));
+    try self.put(Insn.ld_map_fd2(map_fd));
+}
+
+pub fn jeq(self: *Self, src: IPReg, dst: anytype) !u32 {
+    var pos = self.get_target();
+    try self.put(Insn.jeq(src, dst, -0x7FFF));
+    return pos;
+}
+
+pub fn init(allocator: Allocator) !Self {
+    return Self{
+        .code = try ArrayList(Insn).initCapacity(allocator, 128),
+    };
+}
+
+pub fn prog(self: Self) []Insn {
+    return self.code.items;
+}
 
 fn regmovmc(cfo: *Self, dst: IPReg, src: Inst) !void {
     switch (src.mckind) {

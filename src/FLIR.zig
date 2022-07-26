@@ -798,7 +798,7 @@ pub fn calc_use(self: *Self) !void {
 
 pub fn alloc_arg(self: *Self, inst: *Inst) !void {
     _ = self;
-    const regs: [6]IPReg = .{ 1, 2, 3, 4, 5  };
+    const regs: [6]IPReg = .{ 1, 2, 3, 4, 5 };
     if (inst.op1 >= regs.len) return error.ARA;
     inst.mckind = .ipreg;
     inst.mcidx = regs[inst.op1].id();
@@ -975,7 +975,7 @@ fn print_blk(self: *Self, firstblk: u16) void {
             if (i.tag == .vmath) {
                 print(".{s}", .{@tagName(i.vop())});
             } else if (i.tag == .iop) {
-                print(".{s}", .{@tagName(@intToEnum(AOp, i.spec))});
+                print(".{s}", .{@tagName(@intToEnum(AluOp, i.spec))});
             } else if (i.tag == .constant) {
                 print(" c[{}]", .{i.op1});
             } else if (i.tag == .putphi) {

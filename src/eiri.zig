@@ -1,5 +1,6 @@
 const std = @import("std");
 const bpfUtil = @import("./bpfUtil.zig");
+const Codegen = @import("./Codegen.zig");
 const ElfSymbols = @import("./ElfSymbols.zig");
 const linux = std.os.linux;
 const BPF = linux.BPF;
@@ -10,8 +11,6 @@ const mem = std.mem;
 const fd_t = linux.fd_t;
 const errno = linux.getErrno;
 const p = std.debug.print;
-
-const allocator = std.testing.allocator;
 
 pub fn perf_attach_bpf(target: fd_t, prog: fd_t) !void {
     if (linux.ioctl(target, PERF.EVENT_IOC.SET_BPF, @intCast(u64, prog)) < 0) {
@@ -59,6 +58,8 @@ pub fn getUprobeType() !u32 {
 }
 
 pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
     const fname = mem.span(std.os.argv[1]);
     const sdtname = mem.span(std.os.argv[2]);
 
@@ -80,25 +81,25 @@ pub fn main() !void {
 
     const map = try BPF.map_create(.array, 4, 8, 1);
 
+    var c = try Codegen.init(allocator);
+
     const I = Insn;
-    const uprobe_prog = [_]Insn{
-        I.mov(.r0, 0),
-        I.stx(.word, .r10, -4, .r0), // word [r10-4] = 0
-        I.mov(.r2, .r10),
-        I.add(.r2, -4), //              r2 = r10-4
-        I.ld_map_fd1(.r1, map), //      r1 = load_map(map)
-        I.ld_map_fd2(map),
-        I.call(.map_lookup_elem), //    r0 = lookup(r1, r2)
-        I.jeq(.r0, 0, 2), //            if (r0 != 0) {
-        I.mov(.r1, 1),
-        // TODO: UGLY, add Inst.atomic_op to stdlib BPF module
-        I.xadd(.r0, .r1), //              dword [r0] += 0 (atomic)
-        //                              }
-        I.exit(),
-    };
+    try c.put(I.mov(.r0, 0));
+    try c.put(I.stx(.word, .r10, -4, .r0)); // word [r10-4] = 0
+    try c.put(I.mov(.r2, .r10));
+    try c.put(I.add(.r2, -4)); //              r2 = r10-4
+    try c.ld_map_fd1(.r1, map); //             r1 = load_map(map)
+    try c.put(I.call(.map_lookup_elem)); //    r0 = lookup(r1, r2)
+    const t = try c.jeq(.r0, 0); //      if (r0 != 0) {
+    try c.put(I.mov(.r1, 1));
+    // TODO: UGLY, add Inst.atomic_op to stdlib BPF module
+    try c.put(I.xadd(.r0, .r1)); //              dword [r0] += 0 (atomic)
+    c.set_target(t); //  }
+    _ = t;
+    try c.put(I.exit());
     var loggen = [1]u8{0} ** 512;
     var log = BPF.Log{ .level = 4, .buf = &loggen };
-    const prog = BPF.prog_load(.kprobe, &uprobe_prog, &log, "MIT", 0) catch |err| {
+    const prog = BPF.prog_load(.kprobe, c.prog(), &log, "MIT", 0) catch |err| {
         p("ERROR {s}\n", .{mem.sliceTo(&loggen, 0)});
         return err;
     };
