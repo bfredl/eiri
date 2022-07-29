@@ -14,6 +14,7 @@ const fd_t = linux.fd_t;
 const ArrayList = std.ArrayList;
 
 const Insn = BPF.Insn;
+const I = Insn;
 
 code: ArrayList(Insn),
 const Self = @This();
@@ -32,13 +33,13 @@ pub fn put(self: *Self, insn: Insn) !void {
 }
 
 pub fn ld_map_fd1(self: *Self, reg: IPReg, map_fd: fd_t) !void {
-    try self.put(Insn.ld_map_fd1(reg, map_fd));
-    try self.put(Insn.ld_map_fd2(map_fd));
+    try self.put(I.ld_map_fd1(reg, map_fd));
+    try self.put(I.ld_map_fd2(map_fd));
 }
 
 pub fn jeq(self: *Self, src: IPReg, dst: anytype) !u32 {
     var pos = self.get_target();
-    try self.put(Insn.jeq(src, dst, -0x7FFF));
+    try self.put(I.jeq(src, dst, -0x7FFF));
     return pos;
 }
 
@@ -52,21 +53,20 @@ pub fn prog(self: Self) []Insn {
     return self.code.items;
 }
 
-fn regmovmc(cfo: *Self, dst: IPReg, src: Inst) !void {
+fn mov(self: Self, dst: IPReg, src: anytype) !void {
+    try self.put(I.mov(dst, src));
+}
+
+fn regmovmc(self: *Self, dst: IPReg, src: Inst) !void {
     switch (src.mckind) {
-        .frameslot => try cfo.movrm(dst, Self.a(.rbp).o(-8 * @as(i32, src.mcidx))),
+        .frameslot => try self.put(Inst.ldx(.dword, dst, .r10, -8 * @as(i32, src.mcidx))),
         .ipreg => {
             const reg = @intToEnum(IPReg, src.mcidx);
-            if (dst != reg) try cfo.mov(dst, reg);
+            if (dst != reg) try self.mov(dst, reg);
         },
         .fused => {
             if (src.tag != .constant) return error.TheDinnerConversationIsLively;
-            if (src.op1 != 0) { // TODO: proper constval
-                try cfo.movri(dst, src.op1);
-            } else {
-                // THANKS INTEL
-                try cfo.arit(.xor, dst, dst);
-            }
+            try self.mov(dst, src.op1);
         },
         else => return error.AAA_AA_A,
     }
@@ -88,28 +88,26 @@ fn regaritmc(cfo: *Self, op: bpfUtil.AluOp, dst: IPReg, i: Inst) !void {
     }
 }
 
-fn mcmovreg(cfo: *Self, dst: Inst, src: IPReg) !void {
+fn mcmovreg(self: *Self, dst: Inst, src: IPReg) !void {
     switch (dst.mckind) {
-        .frameslot => try cfo.movmr(Self.a(.rbp).o(-8 * @as(i32, dst.mcidx)), .rax),
+        .frameslot => try self.put(Inst.stx(.dword, .r10, -8 * @as(i32, src.mcidx), src)),
         .ipreg => {
             const reg = @intToEnum(IPReg, dst.mcidx);
-            if (reg != src) try cfo.mov(reg, src);
+            if (reg != src) try self.mov(reg, src);
         },
         else => return error.AAA_AA_A,
     }
 }
 
-fn mcmovi(cfo: *Self, i: Inst) !void {
+fn mcmovi(self: *Self, i: Inst) !void {
     switch (i.mckind) {
-        .frameslot => try cfo.movmi(Self.a(.rbp).o(-8 * @as(i32, i.mcidx)), i.op1),
+        .frameslot => {
+            try self.mcmovi(.r0, i.op1);
+            try self.mcmovreg(i, .r0);
+        },
         .ipreg => {
             const reg = @intToEnum(IPReg, i.mcidx);
-            if (i.op1 != 0) {
-                try cfo.movri(reg, i.op1);
-            } else {
-                // THANKS INTEL
-                try cfo.arit(.xor, reg, reg);
-            }
+            try self.mov(reg, i.op1);
         },
         .fused => {}, // let user lookup value
         else => return error.AAA_AA_A,
