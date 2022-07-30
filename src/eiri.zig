@@ -11,6 +11,8 @@ const mem = std.mem;
 const fd_t = linux.fd_t;
 const errno = linux.getErrno;
 const p = std.debug.print;
+// const libbpf = @import("bpf");
+// const PerfBuffer = libbpf.PerfBuffer;
 
 pub fn perf_attach_bpf(target: fd_t, prog: fd_t) !void {
     if (linux.ioctl(target, PERF.EVENT_IOC.SET_BPF, @intCast(u64, prog)) < 0) {

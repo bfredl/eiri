@@ -2,6 +2,7 @@ const Builder = @import("std").build.Builder;
 pub fn build(b: *Builder) void {
     const mode = b.standardReleaseOptions();
     var exe = b.addExecutable("eiri", "src/eiri.zig");
+    exe.addPackagePath("bpf", "libs/bpf/exports.zig");
     exe.setBuildMode(mode);
     exe.install();
 
