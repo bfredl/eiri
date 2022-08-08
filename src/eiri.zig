@@ -64,9 +64,11 @@ pub fn main() !void {
     defer elf.deinit();
 
     const map = try BPF.map_create(.array, 4, 8, 1);
+    const perf_map = try BPF.map_create(.perf, 4, 4, 2);
 
     const I = Insn;
     const uprobe_prog = [_]Insn{
+        I.mov(.r6, .r1), // r6 = ctx
         I.mov(.r0, 0),
         I.stx(.word, .r10, -4, .r0), // word [r10-4] = 0
         I.mov(.r2, .r10),
@@ -74,10 +76,22 @@ pub fn main() !void {
         I.ld_map_fd1(.r1, map), //      r1 = load_map(map)
         I.ld_map_fd2(map),
         I.call(.map_lookup_elem), //    r0 = lookup(r1, r2)
-        I.jeq(.r0, 0, 2), //            if (r0 != 0) {
+        I.jeq(.r0, 0, 13), //            if (r0 != 0) {
         I.mov(.r1, 1),
         // TODO: UGLY, add Inst.atomic_op to stdlib BPF module
-        I.xadd(.r0, .r1), //              dword [r0] += 0 (atomic)
+        I.xadd(.r0, .r1), //              qword [r0] += 0 (atomic)
+        I.ldx(.word, .r3, .r0, 0), // r2 = [r0]
+        I.jle(.r2, 100000, 9),
+        I.mov(.r1, .r6), // r1 = ctx
+        I.ld_map_fd1(.r2, perf_map), //      r2 = load_map(perf_map)
+        I.ld_map_fd2(perf_map),
+        I.stx(.dword, .r10, -8, .r3), // word [r10-8] = r3
+        I.mov(.r3, 0), // r3 = 0 (flags)
+        I.mov(.r4, .r10),
+        I.add(.r4, -8), //              r4 = r10-8
+        I.mov(.r5, 8),
+        I.call(.perf_event_output), //    r0 = lookup(r1, r2)
+        //                              }
         //                              }
         I.exit(),
     };
