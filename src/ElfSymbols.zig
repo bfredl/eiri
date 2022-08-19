@@ -93,7 +93,7 @@ pub fn init(elf_file: File) !Self {
     }
 
     if (note_sdt) |note| {
-        self.note_std = file_bytes[note.sh_offset..][0..note.sh_size];
+        self.note_std = @alignCast(4, file_bytes[note.sh_offset..][0..note.sh_size]);
     }
 
     if (false) {
@@ -138,7 +138,7 @@ pub fn get_sdts(self: *const Self, allocator: Allocator) !ArrayList(Stapsdt) {
         const argdesc = mem.sliceTo(desc[namebase + name.len + 1 ..], 0);
         try list.append(Stapsdt{ .h = phdr, .provider = provider, .name = name, .argdesc = argdesc });
 
-        itemmem = itemmem[hlen + nlen + dlen ..];
+        itemmem = @alignCast(4, itemmem[hlen + nlen + dlen ..]);
     }
     return list;
 }
