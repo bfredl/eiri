@@ -2,6 +2,7 @@ const std = @import("std");
 const bpfUtil = @import("./bpfUtil.zig");
 const Codegen = @import("./Codegen.zig");
 const ElfSymbols = @import("./ElfSymbols.zig");
+const FLIR = @import("./FLIR.zig");
 const linux = std.os.linux;
 const BPF = linux.BPF;
 const PERF = linux.PERF;
@@ -86,19 +87,33 @@ pub fn main() !void {
     var c = try Codegen.init(allocator);
 
     const I = Insn;
-    try c.put(I.mov(.r0, 0));
-    try c.put(I.stx(.word, .r10, -4, .r0)); // word [r10-4] = 0
-    try c.put(I.mov(.r2, .r10));
-    try c.put(I.add(.r2, -4)); //              r2 = r10-4
-    try c.ld_map_fd1(.r1, map); //             r1 = load_map(map)
-    try c.put(I.call(.map_lookup_elem)); //    r0 = lookup(r1, r2)
-    const t = try c.jeq(.r0, 0); //      if (r0 != 0) {
-    try c.put(I.mov(.r1, 1));
-    // TODO: UGLY, add Inst.atomic_op to stdlib BPF module
-    try c.put(I.xadd(.r0, .r1)); //              dword [r0] += 0 (atomic)
-    c.set_target(t); //  }
-    _ = t;
-    try c.put(I.exit());
+    if (false) {
+        try c.put(I.mov(.r0, 0));
+        try c.put(I.stx(.word, .r10, -4, .r0)); // word [r10-4] = 0
+        try c.put(I.mov(.r2, .r10));
+        try c.put(I.add(.r2, -4)); //              r2 = r10-4
+        try c.ld_map_fd1(.r1, map); //             r1 = load_map(map)
+        try c.put(I.call(.map_lookup_elem)); //    r0 = lookup(r1, r2)
+        const t = try c.jeq(.r0, 0); //      if (r0 != 0) {
+        try c.put(I.mov(.r1, 1));
+        // TODO: UGLY, add Inst.atomic_op to stdlib BPF module
+        try c.put(I.xadd(.r0, .r1)); //              dword [r0] += 0 (atomic)
+        c.set_target(t); //  }
+        _ = t;
+        try c.put(I.exit());
+    }
+
+    var ir = try FLIR.init(4, allocator);
+    const start = try ir.addNode();
+    const keyvar = try ir.alloc();
+    const const_0 = try ir.const_int(start, 0);
+    try ir.store(keyvar, const_0);
+    map = try ir.load_map_fd(map);
+    var res = try ir.call2(.map_lookup_elem, map, keyvar);
+    const const_1 = try ir.const_int(start, 1);
+    try ir.xadd(res, const_1);
+    try ir.exit();
+
     var loggen = [1]u8{0} ** 512;
     var log = BPF.Log{ .level = 4, .buf = &loggen };
     const prog = BPF.prog_load(.kprobe, c.prog(), &log, "MIT", 0) catch |err| {
