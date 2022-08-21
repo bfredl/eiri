@@ -101,18 +101,18 @@ pub fn main() !void {
         c.set_target(t); //  }
         _ = t;
         try c.put(I.exit());
+    } else {
+        var ir = try FLIR.init(4, allocator);
+        const start = try ir.addNode();
+        const keyvar = try ir.alloc();
+        const const_0 = try ir.const_int(start, 0);
+        try ir.store(keyvar, const_0);
+        map = try ir.load_map_fd(map);
+        var res = try ir.call2(.map_lookup_elem, map, keyvar);
+        const const_1 = try ir.const_int(start, 1);
+        try ir.xadd(res, const_1);
+        try ir.exit();
     }
-
-    var ir = try FLIR.init(4, allocator);
-    const start = try ir.addNode();
-    const keyvar = try ir.alloc();
-    const const_0 = try ir.const_int(start, 0);
-    try ir.store(keyvar, const_0);
-    map = try ir.load_map_fd(map);
-    var res = try ir.call2(.map_lookup_elem, map, keyvar);
-    const const_1 = try ir.const_int(start, 1);
-    try ir.xadd(res, const_1);
-    try ir.exit();
 
     var loggen = [1]u8{0} ** 512;
     var log = BPF.Log{ .level = 4, .buf = &loggen };

@@ -6,6 +6,7 @@ const Self = @This();
 const print = std.debug.print;
 const SSA_GVN = @import("./SSA_GVN.zig");
 const bpfUtil = @import("./bpfUtil.zig");
+const BPF = std.os.linux.bpf;
 
 const builtin = @import("builtin");
 // const stage2 = builtin.zig_backend != .stage1;
@@ -118,6 +119,7 @@ pub const Inst = struct {
             .phi => inst.spec_type(),
             .putphi => null, // stated in the phi instruction
             .constant => inst.spec_type(),
+            .alloc => .intptr,
             .renum => null, // should be removed at this point
             .load => inst.spec_type(),
             .lea => .intptr, // Lea? Who's Lea??
@@ -140,6 +142,7 @@ pub const Tag = enum(u8) {
     empty = 0, // empty slot. must not be refered to!
     arg,
     variable,
+    alloc, // unconditional stack allocation
     putvar, // non-phi assignment
     phi,
     /// assign to phi of (only) successor
@@ -157,6 +160,8 @@ pub const Tag = enum(u8) {
     vmath,
     ret,
     call,
+    load_map_fd,
+    call2, // TODO: obviously something scaleable up to 5 args
 };
 
 pub const MCKind = enum(u8) {
@@ -379,8 +384,28 @@ pub fn const_int(self: *Self, node: u16, val: u16) !u16 {
     return self.addInst(node, .{ .tag = .constant, .op1 = val, .op2 = 0, .spec = Inst.TODO_INT_SPEC });
 }
 
+pub fn alloc(self: *Self, node: u16) !u16 {
+    if (self.nslots == 255) {
+        return error.UDunGoofed;
+    }
+    const slot = self.nslots;
+    self.nslots += 1;
+    return self.addInst(node, .{ .tag = .alloc, .op1 = slot, .op2 = 0, .spec = Inst.TODO_INT_SPEC });
+}
+
+pub fn load_map_fd(self: *Self, node: u16, map_fd: u64) !u16 {
+    // TODO: store the actual u64 map_fd, same place we store actual u64 constants?
+    assert(map_fd < 0x10000);
+    const low_fd: u16 = @truncate(u16, map_fd);
+    return self.addInst(node, .{ .tag = .load_map_fd, .op1 = low_fd, .op2 = 0 });
+}
+
 pub fn binop(self: *Self, node: u16, tag: Tag, op1: u16, op2: u16) !u16 {
     return self.addInst(node, .{ .tag = tag, .op1 = op1, .op2 = op2 });
+}
+
+pub fn call2(self: *Self, node: u16, func: BPF.funct, op1: u16, op2: u16) !u16 {
+    return self.addInst(node, .{ .tag = .call2, .op1 = op1, .op2 = op2, .spec = @enumToInt(func) });
 }
 
 pub fn iop(self: *Self, node: u16, vop: AluOp, op1: u16, op2: u16) !u16 {
