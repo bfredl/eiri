@@ -6,7 +6,7 @@ const Self = @This();
 const print = std.debug.print;
 const SSA_GVN = @import("./SSA_GVN.zig");
 const bpfUtil = @import("./bpfUtil.zig");
-const BPF = std.os.linux.bpf;
+const BPF = std.os.linux.BPF;
 
 const builtin = @import("builtin");
 // const stage2 = builtin.zig_backend != .stage1;
@@ -127,6 +127,10 @@ pub const Inst = struct {
             .iop => .intptr,
             .ilessthan => null,
             .ret => null,
+            .vmath => null,
+            .load_map_fd => .intptr,
+            .call2 => .intptr,
+            .xadd => null,
         };
     }
 
@@ -159,9 +163,10 @@ pub const Tag = enum(u8) {
     ilessthan, // icmp group?
     vmath,
     ret,
-    call,
+    // call,
     load_map_fd,
     call2, // TODO: obviously something scaleable up to 5 args
+    xadd, // TODO: atomic group
 };
 
 pub const MCKind = enum(u8) {
@@ -221,6 +226,10 @@ pub fn n_op(tag: Tag, rw: bool) u2 {
         .ilessthan => 2,
         .vmath => 2,
         .ret => 1,
+        .call2 => 2,
+        .alloc => 0,
+        .load_map_fd => 0,
+        .xadd => 2,
     };
 }
 
@@ -241,6 +250,7 @@ pub fn has_res(tag: Tag) bool {
         .empty => false,
         .arg => true,
         .variable => true, // ASCHUALLY no, but looks like yes
+        .alloc => true,
         .putvar => false,
         .phi => true,
         .putphi => false, // storage location is stated in the phi instruction
@@ -253,6 +263,9 @@ pub fn has_res(tag: Tag) bool {
         .ilessthan => false, // technically yes, but no
         .vmath => true,
         .ret => false,
+        .xadd => false,
+        .call2 => true,
+        .load_map_fd => true,
     };
 }
 
@@ -404,21 +417,30 @@ pub fn binop(self: *Self, node: u16, tag: Tag, op1: u16, op2: u16) !u16 {
     return self.addInst(node, .{ .tag = tag, .op1 = op1, .op2 = op2 });
 }
 
-pub fn call2(self: *Self, node: u16, func: BPF.funct, op1: u16, op2: u16) !u16 {
-    return self.addInst(node, .{ .tag = .call2, .op1 = op1, .op2 = op2, .spec = @enumToInt(func) });
+pub fn call2(self: *Self, node: u16, func: BPF.Helper, op1: u16, op2: u16) !u16 {
+    // TODO: u8 will not fit all helper functions!
+    return self.addInst(node, .{ .tag = .call2, .op1 = op1, .op2 = op2, .spec = @intCast(u8, @enumToInt(func)) });
 }
 
 pub fn iop(self: *Self, node: u16, vop: AluOp, op1: u16, op2: u16) !u16 {
     return self.addInst(node, .{ .tag = .iop, .spec = vop.opx(), .op1 = op1, .op2 = op2 });
 }
 
+pub fn xadd(self: *Self, node: u16, op1: u16, op2: u16) !u16 {
+    return self.addInst(node, .{ .tag = .xadd, .op1 = op1, .op2 = op2 });
+}
+
 pub fn putvar(self: *Self, node: u16, op1: u16, op2: u16) !void {
     _ = try self.binop(node, .putvar, op1, op2);
 }
 
-pub fn store(self: *Self, node: u16, base: u16, idx: u16, val: u16) !u16 {
+pub fn store2(self: *Self, node: u16, base: u16, idx: u16, val: u16) !u16 {
     // FUBBIT: all possible instances of fusing should be detected in analysis anyway
     const addr = try self.addInst(node, .{ .tag = .lea, .op1 = base, .op2 = idx, .mckind = .fused });
+    return self.addInst(node, .{ .tag = .store, .op1 = addr, .op2 = val, .spec = self.iref(val).?.spec });
+}
+
+pub fn store(self: *Self, node: u16, addr: u16, val: u16) !u16 {
     return self.addInst(node, .{ .tag = .store, .op1 = addr, .op2 = val, .spec = self.iref(val).?.spec });
 }
 
@@ -997,9 +1019,11 @@ fn print_blk(self: *Self, firstblk: u16) void {
             }
 
             if (i.tag == .vmath) {
-                print(".{s}", .{@tagName(i.vop())});
+                // print(".{s}", .{@tagName(i.vop())});
             } else if (i.tag == .iop) {
-                print(".{s}", .{@tagName(@intToEnum(AluOp, i.spec))});
+                // print(".{s}", .{@tagName(@intToEnum(AluOp, i.spec))});
+            } else if (i.tag == .call2) {
+                print(" {s}", .{@tagName(@intToEnum(BPF.Helper, i.spec))});
             } else if (i.tag == .constant) {
                 print(" c[{}]", .{i.op1});
             } else if (i.tag == .putphi) {
@@ -1034,7 +1058,7 @@ fn print_blk(self: *Self, firstblk: u16) void {
 fn print_mcval(i: Inst) void {
     switch (i.mckind) {
         .frameslot => print(" [rbp-8*{}]", .{i.mcidx}),
-        .ipreg => print(" ${s}", .{@tagName(@intToEnum(IPReg, i.mcidx))}),
+        .ipreg => print(" $r{}", .{i.mcidx}),
         .vfreg => print(" $ymm{}", .{i.mcidx}),
         else => {
             if (i.tag == .load or i.tag == .phi or i.tag == .arg) {

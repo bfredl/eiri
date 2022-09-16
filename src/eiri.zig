@@ -63,25 +63,8 @@ pub fn getUprobeType() !u32 {
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
-    const fname = mem.span(std.os.argv[1]);
-    const sdtname = mem.span(std.os.argv[2]);
-
-    const elf = try ElfSymbols.init(try std.fs.cwd().openFile(fname, .{}));
-    const sdts = try elf.get_sdts(allocator);
-    defer sdts.deinit();
-
-    const sdt = thesdt: {
-        for (sdts.items) |i| {
-            p("IYTEM: {} {s} {s} {s}\n", .{ i.h, i.provider, i.name, i.argdesc });
-            if (mem.eql(u8, i.name, sdtname)) {
-                break :thesdt i;
-            }
-        }
-        return error.ProbeNotFound;
-    };
-
-    defer elf.deinit();
-    const map = try BPF.map_create(.array, 4, 8, 1);
+    // dummy value for dry run
+    const map = if (std.os.argv.len > 1) try BPF.map_create(.array, 4, 8, 1) else 23;
 
     var c = try Codegen.init(allocator);
 
@@ -102,16 +85,39 @@ pub fn main() !void {
     } else {
         var ir = try FLIR.init(4, allocator);
         const start = try ir.addNode();
-        const keyvar = try ir.alloc();
+        const keyvar = try ir.alloc(start);
         const const_0 = try ir.const_int(start, 0);
-        try ir.store(keyvar, const_0);
-        map = try ir.load_map_fd(map);
-        var res = try ir.call2(.map_lookup_elem, map, keyvar);
+        _ = try ir.store(start, keyvar, const_0);
+        const m = try ir.load_map_fd(start, @intCast(u32, map));
+        var res = try ir.call2(start, .map_lookup_elem, m, keyvar);
         const const_1 = try ir.const_int(start, 1);
-        try ir.xadd(res, const_1);
-        try ir.exit();
+        _ = try ir.xadd(start, res, const_1);
+        try ir.ret(start, const_0);
+        ir.debug_print();
+        // try ir.test_analysis();
+        // ir.debug_print();
+
+        if (std.os.argv.len <= 1) return;
     }
 
+    const fname = mem.span(std.os.argv[1]);
+    const sdtname = mem.span(std.os.argv[2]);
+
+    const elf = try ElfSymbols.init(try std.fs.cwd().openFile(fname, .{}));
+    const sdts = try elf.get_sdts(allocator);
+    defer sdts.deinit();
+
+    const sdt = thesdt: {
+        for (sdts.items) |i| {
+            p("IYTEM: {} {s} {s} {s}\n", .{ i.h, i.provider, i.name, i.argdesc });
+            if (mem.eql(u8, i.name, sdtname)) {
+                break :thesdt i;
+            }
+        }
+        return error.ProbeNotFound;
+    };
+
+    defer elf.deinit();
     var loggen = [1]u8{0} ** 512;
     var log = BPF.Log{ .level = 4, .buf = &loggen };
     const prog = BPF.prog_load(.kprobe, c.prog(), &log, "MIT", 0) catch |err| {
