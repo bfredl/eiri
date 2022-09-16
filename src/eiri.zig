@@ -94,8 +94,8 @@ pub fn main() !void {
         _ = try ir.xadd(start, res, const_1);
         try ir.ret(start, const_0);
         ir.debug_print();
-        // try ir.test_analysis();
-        // ir.debug_print();
+        try ir.test_analysis();
+        ir.debug_print();
 
         if (std.os.argv.len <= 1) return;
     }
