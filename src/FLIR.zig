@@ -190,6 +190,9 @@ pub const MCKind = enum(u8) {
     // example "lea" and then "store", or "load" and then iop/vmath
     fused,
 
+    // constant which is never allocated as such (consumers problem)
+    constant,
+
     fn unallocated(self: @This()) bool {
         return switch (self) {
             .unallocated_raw => true,
@@ -394,7 +397,7 @@ pub fn preInst(self: *Self, node: u16, inst: Inst) !u16 {
 
 pub fn const_int(self: *Self, node: u16, val: u16) !u16 {
     // TODO: actually store constants in a buffer, or something
-    return self.addInst(node, .{ .tag = .constant, .op1 = val, .op2 = 0, .spec = Inst.TODO_INT_SPEC });
+    return self.addInst(node, .{ .tag = .constant, .op1 = val, .op2 = 0, .spec = Inst.TODO_INT_SPEC, .mckind = .constant });
 }
 
 pub fn alloc(self: *Self, node: u16) !u16 {
@@ -403,7 +406,8 @@ pub fn alloc(self: *Self, node: u16) !u16 {
     }
     const slot = self.nslots;
     self.nslots += 1;
-    return self.addInst(node, .{ .tag = .alloc, .op1 = slot, .op2 = 0, .spec = Inst.TODO_INT_SPEC });
+    // FUBBIT: merge with lea? mckind is also SÅ JÄVLA BULL
+    return self.addInst(node, .{ .tag = .alloc, .op1 = slot, .op2 = 0, .spec = Inst.TODO_INT_SPEC, .mckind = .constant });
 }
 
 pub fn load_map_fd(self: *Self, node: u16, map_fd: u64) !u16 {
@@ -853,36 +857,31 @@ pub fn alloc_arg(self: *Self, inst: *Inst) !void {
 // fills up some registers, and then goes to the stack.
 // reuses op1 if it is from the same block and we are the last user
 pub fn trivial_alloc(self: *Self) !void {
-    const regs: [4]IPReg = .{ 6, 7, 8, 9 };
+    // const regs: [4]IPReg = .{ 6, 7, 8, 9 };
+    const regs: [0]IPReg = .{};
     var used: usize = self.narg;
-    var avxused: u8 = 0;
     for (self.n.items) |*n| {
         var cur_blk: ?u16 = n.firstblk;
         while (cur_blk) |blk| {
             var b = &self.b.items[blk];
             for (b.i) |*i, idx| {
                 const ref = toref(blk, uv(idx));
+                _ = ref;
 
                 if (i.tag == .arg) {
-                    try self.alloc_arg(i);
+                    return error.OOOOOO;
+                    // try self.alloc_arg(i);
                 } else if (has_res(i.tag) and i.mckind.unallocated()) {
-                    const regkind: MCKind = if (i.res_type() == ValType.fpval) .vfreg else .ipreg;
-                    const op1 = if (n_op(i.tag, false) > 0) self.iref(i.op1) else null;
-                    if (op1) |o| {
-                        if (o.mckind == regkind and o.vreg == NoRef and o.last_use == ref) {
-                            i.mckind = regkind;
-                            i.mcidx = o.mcidx;
-                            continue;
-                        }
-                    }
-                    if (i.res_type() == ValType.fpval) {
-                        if (avxused == 16) {
-                            return error.GOOOF;
-                        }
-                        i.mckind = .vfreg;
-                        i.mcidx = avxused;
-                        avxused += 1;
-                    } else if (used < regs.len) {
+                    // const regkind: MCKind = .ipreg;
+                    // const op1 = if (n_op(i.tag, false) > 0) self.iref(i.op1) else null;
+                    // if (op1) |o| {
+                    //     if (o.mckind == regkind and o.vreg == NoRef and o.last_use == ref) {
+                    //         i.mckind = regkind;
+                    //         i.mcidx = o.mcidx;
+                    //         continue;
+                    //     }
+                    // }
+                    if (used < regs.len) {
                         i.mckind = .ipreg;
                         i.mcidx = regs[used].id();
                         used += 1;
@@ -1058,7 +1057,7 @@ fn print_blk(self: *Self, firstblk: u16) void {
 
 fn print_mcval(i: Inst) void {
     switch (i.mckind) {
-        .frameslot => print(" [rbp-8*{}]", .{i.mcidx}),
+        .frameslot => print(" [r10-8*{}]", .{i.mcidx}),
         .ipreg => print(" $r{}", .{i.mcidx}),
         .vfreg => print(" $ymm{}", .{i.mcidx}),
         else => {
@@ -1083,6 +1082,6 @@ pub fn test_analysis(self: *Self) !void {
 
     try self.reorder_inst();
     try self.calc_use();
-    // try self.trivial_alloc();
+    try self.trivial_alloc();
     // try self.scan_alloc();
 }

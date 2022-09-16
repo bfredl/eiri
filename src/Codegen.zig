@@ -64,9 +64,12 @@ fn regmovmc(self: *Self, dst: IPReg, src: Inst) !void {
             const reg = @intToEnum(IPReg, src.mcidx);
             if (dst != reg) try self.mov(dst, reg);
         },
-        .fused => {
+        .constant => {
             if (src.tag != .constant) return error.TheDinnerConversationIsLively;
             try self.mov(dst, src.op1);
+        },
+        .fused => {
+            unreachable;
         },
         else => return error.AAA_AA_A,
     }
@@ -152,13 +155,7 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
     mem.set([2]u32, targets, .{ 0, 0 });
 
     const target = cfo.get_target();
-    try cfo.enter();
-    const stacksize = 8 * @as(i32, self.nslots);
-    if (stacksize > 0) {
-        const padding = (-stacksize) & 0xF;
-        // print("size: {}, extrasize: {}\n", .{ stacksize, padding });
-        try cfo.aritri(.sub, .rsp, stacksize + padding);
-    }
+    // try cfo.enter();
 
     for (self.n.items) |*n, ni| {
         if (n.dfnum == 0 and ni > 0) {
@@ -172,13 +169,13 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
             const pr = &self.n.items[pred];
             const si: u1 = if (pr.s[0] == ni) 0 else 1;
             if (targets[pred][si] != 0) {
-                try cfo.set_target(targets[pred][si]);
+                cfo.set_target(targets[pred][si]);
                 targets[pred][si] = 0;
             }
         }
 
         var cur_blk: ?u16 = n.firstblk;
-        var ea_fused: Self.EAddr = undefined;
+        // var ea_fused: Self.EAddr = undefined;
         var fused_inst: ?*Inst = null;
         while (cur_blk) |blk| {
             var b = &self.b.items[blk];
@@ -225,9 +222,9 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
                         // TODO: spill spall supllit?
                         const base = self.iref(i.op1).?.ipreg() orelse unreachable;
                         const idx = self.iref(i.op2).?.ipreg() orelse unreachable;
-                        const eaddr = Self.qi(base, idx);
+                        // const eaddr = Self.qi(base, idx);
                         if (i.mckind == .fused) {
-                            ea_fused = eaddr;
+                            // ea_fused = eaddr;
                             was_fused = true;
                         } else {
                             const dst = i.ipreg() orelse .rax;
@@ -238,17 +235,14 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
                     .store => {
                         // TODO: fuse lea with store
                         const addr = self.iref(i.op1).?;
-                        const eaddr = if (addr == fused_inst)
-                            ea_fused
-                        else
-                            Self.a(self.iref(i.op1).?.ipreg() orelse unreachable);
+                        // const eaddr = if (addr == fused_inst)
+                        //     ea_fused
+                        // else
+                        //     Self.a(self.iref(i.op1).?.ipreg() orelse unreachable);
                         const val = self.iref(i.op2).?;
-                        if (val.res_type().? == .intptr) {
-                            unreachable;
-                        } else {
-                            const src = val.avxreg() orelse unreachable;
-                            try cfo.vmovumr(i.fmode(), eaddr, src);
-                        }
+                        _ = addr;
+                        _ = val;
+                        unreachable;
                     },
                     .vmath => {
                         const x = self.iref(i.op1).?.avxreg() orelse unreachable;
