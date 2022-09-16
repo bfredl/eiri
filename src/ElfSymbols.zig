@@ -82,7 +82,8 @@ pub fn init(elf_file: File) !Self {
         }
     }
     if (symtab) |st| {
-        if (st.sh_entsize != @sizeOf(elf.Elf64_Sym)) return error.Miiii;
+        // TODO: 0 + @sizeOf() to avoid compiler bug
+        if (st.sh_entsize != 0 + @sizeOf(elf.Elf64_Sym)) return error.Miiii;
         const symtab_raw = file_bytes[st.sh_offset..][0..st.sh_size];
         const items = st.sh_size / st.sh_entsize;
         self.symtab = @ptrCast([*]elf.Elf64_Sym, symtab_raw.ptr)[0..items];
@@ -119,7 +120,8 @@ pub fn get_sdts(self: *const Self, allocator: Allocator) !ArrayList(Stapsdt) {
 
     const notemem = self.note_std orelse return list;
     var itemmem = notemem[0..];
-    const hlen = @sizeOf(elf.Elf64_Nhdr);
+    // TODO: 0 + @sizeOf() to avoid compiler bug
+    const hlen = 0 + @sizeOf(elf.Elf64_Nhdr);
     while (itemmem.len >= hlen) {
         const header = @ptrCast(*elf.Elf64_Nhdr, itemmem.ptr);
         const notename = itemmem[hlen..][0..header.n_namesz];

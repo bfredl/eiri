@@ -81,7 +81,6 @@ pub fn main() !void {
     };
 
     defer elf.deinit();
-
     const map = try BPF.map_create(.array, 4, 8, 1);
 
     var c = try Codegen.init(allocator);
@@ -99,7 +98,6 @@ pub fn main() !void {
         // TODO: UGLY, add Inst.atomic_op to stdlib BPF module
         try c.put(I.xadd(.r0, .r1)); //              dword [r0] += 0 (atomic)
         c.set_target(t); //  }
-        _ = t;
         try c.put(I.exit());
     } else {
         var ir = try FLIR.init(4, allocator);
