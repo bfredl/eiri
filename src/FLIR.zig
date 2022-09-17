@@ -13,7 +13,7 @@ const builtin = @import("builtin");
 const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 
-const IPReg = u4;
+const IPReg = BPF.Insn.Reg;
 const AluOp = bpfUtil.AluOp;
 
 a: Allocator,
@@ -1057,7 +1057,7 @@ fn print_blk(self: *Self, firstblk: u16) void {
 
 fn print_mcval(i: Inst) void {
     switch (i.mckind) {
-        .frameslot => print(" [r10-8*{}]", .{i.mcidx}),
+        .frameslot => print(" [r10-8*{}]", .{i.mcidx + 1}),
         .ipreg => print(" $r{}", .{i.mcidx}),
         .vfreg => print(" $ymm{}", .{i.mcidx}),
         else => {

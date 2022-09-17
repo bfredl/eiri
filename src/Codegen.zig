@@ -19,6 +19,8 @@ const I = Insn;
 code: ArrayList(Insn),
 const Self = @This();
 
+const EAddr = struct { reg: u4, off: i16 };
+
 pub fn get_target(self: *Self) u32 {
     return @intCast(u32, self.code.items.len);
 }
@@ -30,6 +32,10 @@ pub fn set_target(self: *Self, pos: u32) void {
 
 pub fn put(self: *Self, insn: Insn) !void {
     try self.code.append(insn);
+}
+
+pub fn slotoff(slotid: anytype) i16 {
+    return -8 * (1 + @intCast(i16, slotid));
 }
 
 pub fn ld_map_fd1(self: *Self, reg: IPReg, map_fd: fd_t) !void {
@@ -53,13 +59,13 @@ pub fn prog(self: Self) []Insn {
     return self.code.items;
 }
 
-fn mov(self: Self, dst: IPReg, src: anytype) !void {
+fn mov(self: *Self, dst: IPReg, src: anytype) !void {
     try self.put(I.mov(dst, src));
 }
 
 fn regmovmc(self: *Self, dst: IPReg, src: Inst) !void {
     switch (src.mckind) {
-        .frameslot => try self.put(Inst.ldx(.dword, dst, .r10, -8 * @as(i32, src.mcidx))),
+        .frameslot => try self.put(I.ldx(.double_word, dst, .r10, -8 * @as(i16, src.mcidx))),
         .ipreg => {
             const reg = @intToEnum(IPReg, src.mcidx);
             if (dst != reg) try self.mov(dst, reg);
@@ -93,7 +99,7 @@ fn regaritmc(cfo: *Self, op: bpfUtil.AluOp, dst: IPReg, i: Inst) !void {
 
 fn mcmovreg(self: *Self, dst: Inst, src: IPReg) !void {
     switch (dst.mckind) {
-        .frameslot => try self.put(Inst.stx(.dword, .r10, -8 * @as(i32, src.mcidx), src)),
+        .frameslot => try self.put(I.stx(.double_word, .r10, slotoff(dst.mcidx), src)),
         .ipreg => {
             const reg = @intToEnum(IPReg, dst.mcidx);
             if (reg != src) try self.mov(reg, src);
@@ -105,7 +111,8 @@ fn mcmovreg(self: *Self, dst: Inst, src: IPReg) !void {
 fn mcmovi(self: *Self, i: Inst) !void {
     switch (i.mckind) {
         .frameslot => {
-            try self.mcmovi(.r0, i.op1);
+            // TODO: just store??
+            try self.put(I.mov(.r0, i.op1));
             try self.mcmovreg(i, .r0);
         },
         .ipreg => {
@@ -114,6 +121,27 @@ fn mcmovi(self: *Self, i: Inst) !void {
         },
         .fused => {}, // let user lookup value
         else => return error.AAA_AA_A,
+    }
+}
+
+fn stx(self: *Self, dst: EAddr, src: IPReg) !void {
+    try self.put(I.stx(.double_word, @intToEnum(IPReg, dst.reg), dst.off, src));
+}
+
+fn st(self: *Self, dst: EAddr, src: anytype) !void {
+    try self.put(I.st(.double_word, @intToEnum(IPReg, dst.reg), dst.off, src));
+}
+
+fn addrmovmc(self: *Self, dst: EAddr, src: Inst) !void {
+    switch (src.mckind) {
+        .constant => {
+            if (src.tag != .constant) unreachable;
+            try self.st(dst, src.op1);
+        },
+        .ipreg => {
+            try self.stx(dst, @intToEnum(IPReg, src.mcidx));
+        },
+        else => unreachable,
     }
 }
 
@@ -140,7 +168,8 @@ pub fn makejmp(self: *FLIR, cfo: *Self, cond: ?bpfUtil.JmpOp, ni: u16, si: u1, l
     // NOTE: we assume blk 0 always has the prologue (push rbp; mov rbp, rsp)
     // at least, so that even if blk 0 is empty, blk 1 has target larger than 0x00
     if (labels[succ] != 0) {
-        try cfo.jbck(cond, labels[succ]);
+        // try cfo.jbck(cond, labels[succ]);
+        unreachable;
     } else {
         targets[ni][si] = try cfo.jfwd(cond);
     }
@@ -186,50 +215,55 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
                 switch (i.tag) {
                     // empty doesn't flush fused value
                     .empty => continue,
-                    .ret => try regmovmc(cfo, .rax, self.iref(i.op1).?.*),
+                    .ret => try regmovmc(cfo, .r0, self.iref(i.op1).?.*),
                     .iop => {
-                        const dst = i.ipreg() orelse .rax;
+                        const dst = i.ipreg() orelse .r0;
                         try regmovmc(cfo, dst, self.iref(i.op1).?.*);
-                        try regaritmc(cfo, @intToEnum(bpfUtil.AluOp, i.spec), dst, self.iref(i.op2).?.*);
+                        // try regaritmc(cfo, @intToEnum(bpfUtil.AluOp, i.spec), dst, self.iref(i.op2).?.*);
                         try mcmovreg(cfo, i.*, dst); // elided if dst is register
+                        unreachable;
                     },
                     .constant => try mcmovi(cfo, i.*),
                     .ilessthan => {
-                        const firstop = self.iref(i.op1).?.ipreg() orelse .rax;
+                        const firstop = self.iref(i.op1).?.ipreg() orelse .r0;
                         try regmovmc(cfo, firstop, self.iref(i.op1).?.*);
-                        try regaritmc(cfo, .cmp, firstop, self.iref(i.op2).?.*);
+                        // try regaritmc(cfo, .cmp, firstop, self.iref(i.op2).?.*);
+                        unreachable;
                     },
                     .putphi => {
                         // TODO: actually check for parallell-move conflicts
                         // either here or as an extra deconstruction step
-                        try movmcs(cfo, self.iref(i.op2).?.*, self.iref(i.op1).?.*, .rax);
+                        try movmcs(cfo, self.iref(i.op2).?.*, self.iref(i.op1).?.*, .r0);
                     },
                     .load => {
                         // TODO: spill spall supllit?
                         const base = self.iref(i.op1).?.ipreg() orelse unreachable;
                         const idx = self.iref(i.op2).?.ipreg() orelse unreachable;
-                        const eaddr = Self.qi(base, idx);
+                        _ = base;
+                        _ = idx;
+                        // const eaddr = unreachable; // Self.qi(base, idx);
                         if (i.spec_type() == .intptr) {
-                            const dst = i.ipreg() orelse .rax;
-                            try cfo.movrm(dst, eaddr);
+                            const dst = i.ipreg() orelse .r0;
+                            // try cfo.movrm(dst, eaddr);
                             try mcmovreg(cfo, i.*, dst); // elided if dst is register
-                        } else {
-                            const dst = i.avxreg() orelse unreachable;
-                            try cfo.vmovurm(i.fmode(), dst, eaddr);
+                            unreachable;
                         }
                     },
                     .lea => {
                         // TODO: spill spall supllit?
                         const base = self.iref(i.op1).?.ipreg() orelse unreachable;
                         const idx = self.iref(i.op2).?.ipreg() orelse unreachable;
+                        _ = base;
+                        _ = idx;
                         // const eaddr = Self.qi(base, idx);
                         if (i.mckind == .fused) {
                             // ea_fused = eaddr;
                             was_fused = true;
                         } else {
-                            const dst = i.ipreg() orelse .rax;
-                            try cfo.lea(dst, Self.qi(base, idx));
+                            const dst = i.ipreg() orelse .r0;
+                            // try cfo.lea(dst, Self.qi(base, idx));
                             try mcmovreg(cfo, i.*, dst); // elided if dst is register
+                            unreachable;
                         }
                     },
                     .store => {
@@ -239,16 +273,9 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
                         //     ea_fused
                         // else
                         //     Self.a(self.iref(i.op1).?.ipreg() orelse unreachable);
+                        const eaddr: EAddr = if (addr.tag == .alloc) .{ .reg = 10, .off = slotoff(addr.op1) } else if (addr.mckind == .ipreg) .{ .reg = @intCast(u4, addr.mcidx), .off = 0 } else unreachable;
                         const val = self.iref(i.op2).?;
-                        _ = addr;
-                        _ = val;
-                        unreachable;
-                    },
-                    .vmath => {
-                        const x = self.iref(i.op1).?.avxreg() orelse unreachable;
-                        const y = self.iref(i.op2).?.avxreg() orelse unreachable;
-                        const dst = i.avxreg() orelse unreachable;
-                        try cfo.vmathf(i.vop(), i.fmode(), dst, x, y);
+                        try addrmovmc(cfo, eaddr, val.*);
                     },
 
                     else => {},

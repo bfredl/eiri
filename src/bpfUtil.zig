@@ -72,3 +72,18 @@ const AluOp = enum(u8) {
     mov = BPF.MOV,
     arsh = BPF.ARSH,
 };
+
+pub const JmpOp = enum(u8) {
+    ja = BPF.JA,
+    jeq = BPF.JEQ,
+    jgt = BPF.JGT,
+    jge = BPF.JGE,
+    jset = BPF.JSET,
+    jlt = BPF.JLT,
+    jle = BPF.JLE,
+    jne = BPF.JNE,
+    jsgt = BPF.JSGT,
+    jsge = BPF.JSGE,
+    jslt = BPF.JSLT,
+    jsle = BPF.JSLE,
+};
