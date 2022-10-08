@@ -99,7 +99,7 @@ pub fn main() !void {
         const pos = try Codegen.codegen(&ir, &c);
         _ = pos;
 
-        c.dump();
+        // c.dump();
 
         if (std.os.argv.len <= 1) return;
     }

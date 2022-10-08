@@ -57,12 +57,19 @@ pub fn dump_ins(i: I, ni: usize) void {
         BPF.ARSH => "ARSH",
         else => "???",
     };
-    switch (@intCast(u4, i.code & 0x0f)) {
+    switch (@intCast(u3, i.code & 0x07)) {
         BPF.ALU => {
             print(".{s}", .{aluspec});
         },
         BPF.ALU64 => {
             print(".{s}", .{aluspec});
+        },
+        BPF.JMP => {
+            if (i.code & BPF.EXIT != 0) {
+                print(" EXIT", .{});
+            } else if (i.code & BPF.CALL != 0) {
+                print(" ${s}", .{@tagName(@intToEnum(BPF.Helper, i.imm))});
+            }
         },
         else => {},
     }
@@ -124,7 +131,9 @@ fn regmovmc(self: *Self, dst: IPReg, src: Inst) !void {
             try self.mov(dst, src.op1);
         },
         .fused => {
-            unreachable;
+            if (src.tag != .alloc) return error.BBB_BBB;
+            try self.mov(dst, .r10);
+            try self.put(I.add(dst, slotoff(src.op1)));
         },
         else => return error.AAA_AA_A,
     }
@@ -366,6 +375,15 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
                         try regmovmc(cfo, .r2, self.iref(i.op2).?.*);
                         try cfo.put(I.call(@intToEnum(BPF.Helper, i.spec)));
                         try mcmovreg(cfo, i.*, .r0);
+                    },
+                    .xadd => {
+                        const dest = self.iref(i.op1).?.*;
+                        const src = self.iref(i.op2).?.*;
+                        const dreg = if (dest.mckind == .ipreg) @intToEnum(IPReg, dest.mcidx) else .r0;
+                        try regmovmc(cfo, dreg, dest);
+                        const sreg = if (src.mckind == .ipreg) @intToEnum(IPReg, src.mcidx) else .r1;
+                        try regmovmc(cfo, sreg, src);
+                        try cfo.put(I.xadd(dreg, sreg));
                     },
                     else => {
                         print("TEG! {}\n", .{i.tag});

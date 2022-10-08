@@ -406,8 +406,7 @@ pub fn alloc(self: *Self, node: u16) !u16 {
     }
     const slot = self.nslots;
     self.nslots += 1;
-    // FUBBIT: merge with lea? mckind is also SÅ JÄVLA BULL
-    return self.addInst(node, .{ .tag = .alloc, .op1 = slot, .op2 = 0, .spec = Inst.TODO_INT_SPEC, .mckind = .constant });
+    return self.addInst(node, .{ .tag = .alloc, .op1 = slot, .op2 = 0, .spec = Inst.TODO_INT_SPEC, .mckind = .fused });
 }
 
 pub fn load_map_fd(self: *Self, node: u16, map_fd: u64) !u16 {
