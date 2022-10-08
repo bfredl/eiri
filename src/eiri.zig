@@ -91,8 +91,14 @@ pub fn main() !void {
         const m = try ir.load_map_fd(start, @intCast(u32, map));
         var res = try ir.call2(start, .map_lookup_elem, m, keyvar);
         const const_1 = try ir.const_int(start, 1);
-        _ = try ir.xadd(start, res, const_1);
-        try ir.ret(start, const_0);
+        _ = try ir.jeq(start, res, const_0);
+        const doit = try ir.addNode();
+        _ = try ir.xadd(doit, res, const_1);
+        const end = try ir.addNode();
+        try ir.ret(end, const_0);
+        ir.n.items[start].s[0] = doit;
+        ir.n.items[start].s[1] = end;
+        ir.n.items[doit].s[0] = end;
         ir.debug_print();
         try ir.test_analysis();
         ir.debug_print();

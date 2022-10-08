@@ -429,6 +429,10 @@ pub fn iop(self: *Self, node: u16, vop: AluOp, op1: u16, op2: u16) !u16 {
     return self.addInst(node, .{ .tag = .iop, .spec = vop.opx(), .op1 = op1, .op2 = op2 });
 }
 
+pub fn jeq(self: *Self, node: u16, op1: u16, op2: u16) !u16 {
+    return self.addInst(node, .{ .tag = .ilessthan, .spec = 0, .op1 = op1, .op2 = op2 });
+}
+
 pub fn xadd(self: *Self, node: u16, op1: u16, op2: u16) !u16 {
     return self.addInst(node, .{ .tag = .xadd, .op1 = op1, .op2 = op2 });
 }
@@ -469,6 +473,18 @@ pub fn variable(self: *Self) !u16 {
     const inst = try self.addInst(0, .{ .tag = .variable, .op1 = self.nvar, .op2 = 0, .spec = Inst.TODO_INT_SPEC });
     self.nvar += 1;
     return inst;
+}
+
+pub fn trivial_succ(self: *Self, ni: u16) ?u16 {
+    const node = &self.n.items[ni];
+    if (node.firstblk == node.lastblk) {
+        const blk = self.b.items[node.firstblk];
+        for (blk.i) |i| {
+            if (i.tag != .empty) return null;
+        }
+    }
+    assert(node.s[1] == 0);
+    return node.s[0];
 }
 
 pub fn preds(self: *Self, i: u16) []u16 {
@@ -856,8 +872,8 @@ pub fn alloc_arg(self: *Self, inst: *Inst) !void {
 // fills up some registers, and then goes to the stack.
 // reuses op1 if it is from the same block and we are the last user
 pub fn trivial_alloc(self: *Self) !void {
-    // const regs: [4]IPReg = .{ 6, 7, 8, 9 };
-    const regs: [0]IPReg = .{};
+    const regs: [4]IPReg = .{ .r6, .r7, .r8, .r9 };
+    // const regs: [0]IPReg = .{};
     var used: usize = self.narg;
     for (self.n.items) |*n| {
         var cur_blk: ?u16 = n.firstblk;
@@ -882,7 +898,7 @@ pub fn trivial_alloc(self: *Self) !void {
                     // }
                     if (used < regs.len) {
                         i.mckind = .ipreg;
-                        i.mcidx = regs[used].id();
+                        i.mcidx = @enumToInt(regs[used]);
                         used += 1;
                     } else {
                         i.mckind = .frameslot;
@@ -1083,4 +1099,21 @@ pub fn test_analysis(self: *Self) !void {
     try self.calc_use();
     try self.trivial_alloc();
     // try self.scan_alloc();
+
+    try self.remove_empty();
+}
+
+pub fn remove_empty(self: *Self) !void {
+    for (self.n.items) |*n, ni| {
+        for (n.s) |*s| {
+            if (s.* == 0) continue;
+            const fallthrough = self.trivial_succ(s.*);
+            if (fallthrough) |f| {
+                const b = &self.n.items[s.*];
+                b.npred = 0;
+                s.* = f;
+                self.addpred(f, @intCast(u16, ni));
+            }
+        }
+    }
 }

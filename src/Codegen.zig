@@ -58,20 +58,24 @@ pub fn dump_ins(i: I, ni: usize) void {
         else => "???",
     };
     switch (@intCast(u3, i.code & 0x07)) {
-        BPF.ALU => {
+        BPF.ALU, BPF.ALU64 => {
             print("{s}", .{aluspec});
-        },
-        BPF.ALU64 => {
-            print("64.{s}", .{aluspec});
+            if (i.code & 0x07 == BPF.ALU64) print("64", .{});
+            print(" r{}, ", .{i.dst});
+            if (i.code & BPF.X == BPF.X) print("r{}", .{i.src}) else print("{}", .{i.imm});
         },
         BPF.JMP => {
-            if (i.code & BPF.EXIT != 0) {
+            if (i.code & 0xf0 == BPF.EXIT) {
                 print("EXIT", .{});
-            } else if (i.code & BPF.CALL != 0) {
+            } else if (i.code & 0xf0 == BPF.CALL) {
                 print("CALL ${s}", .{@tagName(@intToEnum(BPF.Helper, i.imm))});
+            } else {
+                print("J?? ", .{});
+                print(" r{}, ", .{i.dst});
+                if (i.code & BPF.X == BPF.X) print("r{}", .{i.src}) else print("{}", .{i.imm});
             }
         },
-        else => print("{s}", .{grp}),
+        else => print("{s}.???", .{grp}),
     }
     print("\n", .{});
 }
@@ -271,9 +275,10 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
     // try cfo.enter();
 
     for (self.n.items) |*n, ni| {
-        if (n.dfnum == 0 and ni > 0) {
+        if ((n.dfnum == 0 or n.npred == 0) and ni > 0) {
             // non-entry block not reached by df search is dead.
             // TODO: these should already been cleaned up at this point
+            // TODO: n.npred explicitly being set to 0 is a hack!
             continue;
         }
         labels[ni] = cfo.get_target();
@@ -314,8 +319,6 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
                         const firstop = self.iref(i.op1).?.ipreg() orelse .r0;
                         const pos = try regjmpmc(cfo, firstop, self.iref(i.op2).?.*);
                         targets[ni][1] = pos;
-                        // try regaritmc(cfo, .cmp, firstop, self.iref(i.op2).?.*);
-                        unreachable;
                     },
                     .putphi => {
                         // TODO: actually check for parallell-move conflicts
@@ -395,9 +398,14 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
             cur_blk = b.next();
         }
 
-        // TODO: handle trivial critical-edge block.
-        const fallthru = ni + 1;
-        if (n.s[0] == fallthru and n.s[1] != 0) {
+        var fallthru = ni + 1;
+        while (fallthru < self.n.items.len and self.n.items[fallthru].npred == 0) {
+            fallthru += 1;
+        }
+        // TODO: port handling trivial critical-edge block back to forklift!.
+        var alt_fallthru = if (fallthru < self.n.items.len) self.trivial_succ(@intCast(u16, fallthru)) else null;
+        print("THe FALL: {} {?}\n", .{ fallthru, alt_fallthru });
+        if ((n.s[0] == fallthru or n.s[0] == alt_fallthru) and n.s[1] != 0) {
             // TOTO: assert  last instruction was a cond jmp!
 
             // try makejmp(self, cfo, .nl, uv(ni), 1, labels, targets);
@@ -410,7 +418,7 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
                 } else break :default 0;
             };
 
-            if (n.s[default] != fallthru and n.s[default] != 0) {
+            if (n.s[default] != fallthru and n.s[default] != alt_fallthru and n.s[default] != 0) {
                 // try makejmp(self, cfo, null, uv(ni), default, labels, targets);
                 unreachable;
             }
