@@ -23,47 +23,50 @@ const EAddr = struct { reg: u4, off: i16 };
 
 pub fn dump(self: *Self) void {
     for (self.code.items) |*i, ni| {
-        print("{}: {x} ", .{ ni, i.code });
-        const grp = switch (@intCast(u4, i.code & 0x0f)) {
-            BPF.LD => "LD",
-            BPF.LDX => "LDX",
-            BPF.ST => "ST",
-            BPF.STX => "STX",
-            BPF.ALU => "ALU",
-            BPF.JMP => "JMP",
-            BPF.RET => "RET",
-            BPF.MISC => "A8M", // ALU64 or MISC
-            else => "???",
-        };
-        print("{s}", .{grp});
-
-        const aluspec = switch (i.code & 0xf0) {
-            BPF.ADD => "ADD",
-            BPF.SUB => "SUB",
-            BPF.MUL => "MUL",
-            BPF.DIV => "DIV",
-            BPF.OR => "OR",
-            BPF.AND => "AND",
-            BPF.LSH => "LSH",
-            BPF.RSH => "RSH",
-            BPF.NEG => "NEG",
-            BPF.MOD => "MOD",
-            BPF.XOR => "XOR",
-            BPF.MOV => "MOV",
-            BPF.ARSH => "ARSH",
-            else => "???",
-        };
-        switch (@intCast(u4, i.code & 0x0f)) {
-            BPF.ALU => {
-                print(".{s}", .{aluspec});
-            },
-            BPF.ALU64 => {
-                print(".{s}", .{aluspec});
-            },
-            else => {},
-        }
-        print(" d{} s{} o{} i{}\n", .{ i.dst, i.src, i.off, i.imm });
+        dump_ins(i.*, ni);
     }
+}
+
+pub fn dump_ins(i: I, ni: usize) void {
+    print("{}: {x} ", .{ ni, i.code });
+    const grp = switch (@intCast(u3, i.code & 0x07)) {
+        BPF.LD => "LD",
+        BPF.LDX => "LDX",
+        BPF.ST => "ST",
+        BPF.STX => "STX",
+        BPF.ALU => "ALU",
+        BPF.JMP => "JMP",
+        BPF.RET => "RET",
+        BPF.MISC => "A8M", // ALU64 or MISC
+    };
+    print("{s}", .{grp});
+
+    const aluspec = switch (i.code & 0xf0) {
+        BPF.ADD => "ADD",
+        BPF.SUB => "SUB",
+        BPF.MUL => "MUL",
+        BPF.DIV => "DIV",
+        BPF.OR => "OR",
+        BPF.AND => "AND",
+        BPF.LSH => "LSH",
+        BPF.RSH => "RSH",
+        BPF.NEG => "NEG",
+        BPF.MOD => "MOD",
+        BPF.XOR => "XOR",
+        BPF.MOV => "MOV",
+        BPF.ARSH => "ARSH",
+        else => "???",
+    };
+    switch (@intCast(u4, i.code & 0x0f)) {
+        BPF.ALU => {
+            print(".{s}", .{aluspec});
+        },
+        BPF.ALU64 => {
+            print(".{s}", .{aluspec});
+        },
+        else => {},
+    }
+    print(" d{} s{} o{} i{}\n", .{ i.dst, i.src, i.off, i.imm });
 }
 
 pub fn get_target(self: *Self) u32 {
@@ -76,6 +79,7 @@ pub fn set_target(self: *Self, pos: u32) void {
 }
 
 pub fn put(self: *Self, insn: Insn) !void {
+    dump_ins(insn, self.code.items.len);
     try self.code.append(insn);
 }
 
@@ -279,8 +283,10 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
         var fused_inst: ?*Inst = null;
         while (cur_blk) |blk| {
             var b = &self.b.items[blk];
-            for (b.i) |*i| {
+            for (b.i) |*i, ii| {
                 if (i.tag == .empty) continue;
+
+                print("%{}: \n", .{FLIR.toref(blk, uv(ii))});
 
                 var was_fused: bool = false;
                 switch (i.tag) {
@@ -350,11 +356,17 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
                         try addrmovmc(cfo, eaddr, val.*);
                     },
                     .load_map_fd => {
-                        const reg = if (i.mckind == .ipreg) @intToEnum(IPReg, i.mcidx) else unreachable;
+                        const reg = if (i.mckind == .ipreg) @intToEnum(IPReg, i.mcidx) else .r0;
                         try ld_map_fd(cfo, reg, i.op1);
+                        try mcmovreg(cfo, i.*, reg);
                     },
                     .alloc => {},
-
+                    .call2 => {
+                        try regmovmc(cfo, .r1, self.iref(i.op1).?.*);
+                        try regmovmc(cfo, .r2, self.iref(i.op2).?.*);
+                        try cfo.put(I.call(@intToEnum(BPF.Helper, i.spec)));
+                        try mcmovreg(cfo, i.*, .r0);
+                    },
                     else => {
                         print("TEG! {}\n", .{i.tag});
                         unreachable;
