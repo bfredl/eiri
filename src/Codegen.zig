@@ -21,6 +21,45 @@ const Self = @This();
 
 const EAddr = struct { reg: u4, off: i16 };
 
+pub fn dump(self: *Self) void {
+    for (self.code.items) |*i, ni| {
+        print("{}: {x} ", .{ ni, i.code });
+        const grp = switch (@intCast(u4, i.code & 0x0f)) {
+            BPF.LD => "LD",
+            BPF.LDX => "LDX",
+            BPF.ST => "ST",
+            BPF.STX => "STX",
+            BPF.ALU => "ALU",
+            BPF.JMP => "JMP",
+            BPF.RET => "RET",
+            BPF.MISC => "MISC",
+            else => "???",
+        };
+        print("{s}", .{grp});
+        switch (@intCast(u4, i.code & 0x0f)) {
+            BPF.ALU => {
+                const spec = switch (i.code & 0xf0) {
+                    BPF.ADD => "ADD",
+                    BPF.SUB => "SUB",
+                    BPF.MUL => "MUL",
+                    BPF.DIV => "DIV",
+                    BPF.OR => "OR",
+                    BPF.AND => "AND",
+                    BPF.LSH => "LSH",
+                    BPF.RSH => "RSH",
+                    BPF.NEG => "NEG",
+                    BPF.MOD => "MOD",
+                    BPF.XOR => "XOR",
+                    else => "???",
+                };
+                print(".{s}", .{spec});
+            },
+            else => {},
+        }
+        print(" d{} s{} o{} i{}\n", .{ i.dst, i.src, i.off, i.imm });
+    }
+}
+
 pub fn get_target(self: *Self) u32 {
     return @intCast(u32, self.code.items.len);
 }
