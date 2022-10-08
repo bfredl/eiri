@@ -32,27 +32,33 @@ pub fn dump(self: *Self) void {
             BPF.ALU => "ALU",
             BPF.JMP => "JMP",
             BPF.RET => "RET",
-            BPF.MISC => "MISC",
+            BPF.MISC => "A8M", // ALU64 or MISC
             else => "???",
         };
         print("{s}", .{grp});
+
+        const aluspec = switch (i.code & 0xf0) {
+            BPF.ADD => "ADD",
+            BPF.SUB => "SUB",
+            BPF.MUL => "MUL",
+            BPF.DIV => "DIV",
+            BPF.OR => "OR",
+            BPF.AND => "AND",
+            BPF.LSH => "LSH",
+            BPF.RSH => "RSH",
+            BPF.NEG => "NEG",
+            BPF.MOD => "MOD",
+            BPF.XOR => "XOR",
+            BPF.MOV => "MOV",
+            BPF.ARSH => "ARSH",
+            else => "???",
+        };
         switch (@intCast(u4, i.code & 0x0f)) {
             BPF.ALU => {
-                const spec = switch (i.code & 0xf0) {
-                    BPF.ADD => "ADD",
-                    BPF.SUB => "SUB",
-                    BPF.MUL => "MUL",
-                    BPF.DIV => "DIV",
-                    BPF.OR => "OR",
-                    BPF.AND => "AND",
-                    BPF.LSH => "LSH",
-                    BPF.RSH => "RSH",
-                    BPF.NEG => "NEG",
-                    BPF.MOD => "MOD",
-                    BPF.XOR => "XOR",
-                    else => "???",
-                };
-                print(".{s}", .{spec});
+                print(".{s}", .{aluspec});
+            },
+            BPF.ALU64 => {
+                print(".{s}", .{aluspec});
             },
             else => {},
         }
