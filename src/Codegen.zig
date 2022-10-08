@@ -28,7 +28,8 @@ pub fn dump(self: *Self) void {
 }
 
 pub fn dump_ins(i: I, ni: usize) void {
-    print("{}: {x} ", .{ ni, i.code });
+    print("{:03}: {x:0>2} ", .{ ni, i.code });
+    print("{x} {x} {x:3} {x:4} ", .{ i.dst, i.src, i.off, i.imm });
     const grp = switch (@intCast(u3, i.code & 0x07)) {
         BPF.LD => "LD",
         BPF.LDX => "LDX",
@@ -39,7 +40,6 @@ pub fn dump_ins(i: I, ni: usize) void {
         BPF.RET => "RET",
         BPF.MISC => "A8M", // ALU64 or MISC
     };
-    print("{s}", .{grp});
 
     const aluspec = switch (i.code & 0xf0) {
         BPF.ADD => "ADD",
@@ -59,21 +59,21 @@ pub fn dump_ins(i: I, ni: usize) void {
     };
     switch (@intCast(u3, i.code & 0x07)) {
         BPF.ALU => {
-            print(".{s}", .{aluspec});
+            print("{s}", .{aluspec});
         },
         BPF.ALU64 => {
-            print(".{s}", .{aluspec});
+            print("64.{s}", .{aluspec});
         },
         BPF.JMP => {
             if (i.code & BPF.EXIT != 0) {
-                print(" EXIT", .{});
+                print("EXIT", .{});
             } else if (i.code & BPF.CALL != 0) {
-                print(" ${s}", .{@tagName(@intToEnum(BPF.Helper, i.imm))});
+                print("CALL ${s}", .{@tagName(@intToEnum(BPF.Helper, i.imm))});
             }
         },
-        else => {},
+        else => print("{s}", .{grp}),
     }
-    print(" d{} s{} o{} i{}\n", .{ i.dst, i.src, i.off, i.imm });
+    print("\n", .{});
 }
 
 pub fn get_target(self: *Self) u32 {
