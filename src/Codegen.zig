@@ -83,7 +83,7 @@ pub fn slotoff(slotid: anytype) i16 {
     return -8 * (1 + @intCast(i16, slotid));
 }
 
-pub fn ld_map_fd1(self: *Self, reg: IPReg, map_fd: fd_t) !void {
+pub fn ld_map_fd(self: *Self, reg: IPReg, map_fd: fd_t) !void {
     try self.put(I.ld_map_fd1(reg, map_fd));
     try self.put(I.ld_map_fd2(map_fd));
 }
@@ -349,8 +349,16 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
                         const val = self.iref(i.op2).?;
                         try addrmovmc(cfo, eaddr, val.*);
                     },
+                    .load_map_fd => {
+                        const reg = if (i.mckind == .ipreg) @intToEnum(IPReg, i.mcidx) else unreachable;
+                        try ld_map_fd(cfo, reg, i.op1);
+                    },
+                    .alloc => {},
 
-                    else => {},
+                    else => {
+                        print("TEG! {}\n", .{i.tag});
+                        unreachable;
+                    },
                 }
                 fused_inst = if (was_fused) i else null;
             }
