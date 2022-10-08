@@ -86,7 +86,7 @@ pub fn init(elf_file: File) !Self {
         if (st.sh_entsize != 0 + @sizeOf(elf.Elf64_Sym)) return error.Miiii;
         const symtab_raw = file_bytes[st.sh_offset..][0..st.sh_size];
         const items = st.sh_size / st.sh_entsize;
-        self.symtab = @ptrCast([*]elf.Elf64_Sym, symtab_raw.ptr)[0..items];
+        self.symtab = @ptrCast([*]elf.Elf64_Sym, @alignCast(8, symtab_raw.ptr))[0..items];
     }
 
     if (strtab) |st| {

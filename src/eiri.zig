@@ -96,7 +96,10 @@ pub fn main() !void {
         ir.debug_print();
         try ir.test_analysis();
         ir.debug_print();
-        try Codegen.codegen(&ir, &c);
+        const pos = try Codegen.codegen(&ir, &c);
+        _ = pos;
+
+        c.dump();
 
         if (std.os.argv.len <= 1) return;
     }

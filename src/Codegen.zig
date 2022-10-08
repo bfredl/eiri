@@ -81,6 +81,30 @@ fn regmovmc(self: *Self, dst: IPReg, src: Inst) !void {
     }
 }
 
+fn regjmpmc(self: *Self, dst: IPReg, src: Inst) !u32 {
+    switch (src.mckind) {
+        .frameslot => {
+            unreachable;
+            // try self.put(I.ldx(.double_word, dst, .r10, -8 * @as(i16, src.mcidx))),
+        },
+        .ipreg => {
+            // const reg = @intToEnum(IPReg, src.mcidx);
+            // if (dst != reg) try self.mov(dst, reg);
+            unreachable;
+        },
+        .constant => {
+            if (src.tag != .constant) return error.TheDinnerConversationIsLively;
+            const pos = self.get_target();
+            try self.put(I.jle(dst, src.op1, 0x7FFF));
+            return pos;
+        },
+        .fused => {
+            unreachable;
+        },
+        else => return error.AAA_AA_A,
+    }
+}
+
 fn regaritmc(cfo: *Self, op: bpfUtil.AluOp, dst: IPReg, i: Inst) !void {
     switch (i.mckind) {
         .frameslot => try cfo.aritrm(op, dst, Self.a(.rbp).o(-8 * @as(i32, i.mcidx))),
@@ -120,6 +144,7 @@ fn mcmovi(self: *Self, i: Inst) !void {
             try self.mov(reg, i.op1);
         },
         .fused => {}, // let user lookup value
+        .constant => {}, // let user lookup value
         else => return error.AAA_AA_A,
     }
 }
@@ -129,7 +154,8 @@ fn stx(self: *Self, dst: EAddr, src: IPReg) !void {
 }
 
 fn st(self: *Self, dst: EAddr, src: anytype) !void {
-    try self.put(I.st(.double_word, @intToEnum(IPReg, dst.reg), dst.off, src));
+    // TODO: AAAA wrong size
+    try self.put(I.st(.word, @intToEnum(IPReg, dst.reg), dst.off, src));
 }
 
 fn addrmovmc(self: *Self, dst: EAddr, src: Inst) !void {
@@ -226,7 +252,8 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
                     .constant => try mcmovi(cfo, i.*),
                     .ilessthan => {
                         const firstop = self.iref(i.op1).?.ipreg() orelse .r0;
-                        try regmovmc(cfo, firstop, self.iref(i.op1).?.*);
+                        const pos = try regjmpmc(cfo, firstop, self.iref(i.op2).?.*);
+                        targets[ni][1] = pos;
                         // try regaritmc(cfo, .cmp, firstop, self.iref(i.op2).?.*);
                         unreachable;
                     },
@@ -288,22 +315,26 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
         // TODO: handle trivial critical-edge block.
         const fallthru = ni + 1;
         if (n.s[0] == fallthru and n.s[1] != 0) {
-            try makejmp(self, cfo, .nl, uv(ni), 1, labels, targets);
+            // TOTO: assert  last instruction was a cond jmp!
+
+            // try makejmp(self, cfo, .nl, uv(ni), 1, labels, targets);
         } else {
             const default: u1 = default: {
                 if (n.s[1] != 0) {
-                    try makejmp(self, cfo, .l, uv(ni), 0, labels, targets);
-                    break :default 1;
+                    unreachable;
+                    // try makejmp(self, cfo, .l, uv(ni), 0, labels, targets);
+                    // break :default 1;
                 } else break :default 0;
             };
 
             if (n.s[default] != fallthru and n.s[default] != 0) {
-                try makejmp(self, cfo, null, uv(ni), default, labels, targets);
+                // try makejmp(self, cfo, null, uv(ni), default, labels, targets);
+                unreachable;
             }
         }
     }
 
-    try cfo.leave();
-    try cfo.ret();
+    // try cfo.leave();
+    try cfo.put(I.exit());
     return target;
 }
