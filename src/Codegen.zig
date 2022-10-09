@@ -58,12 +58,26 @@ pub fn dump_ins(i: I, ni: usize) void {
         BPF.ARSH => "ARSH",
         else => "???",
     };
+    const siz = i.code & 0x18;
+    const mspec = i.code & 0xe0;
     switch (@intCast(u3, i.code & 0x07)) {
         BPF.ALU, BPF.ALU64 => {
             print("{s}", .{aluspec});
             if (i.code & 0x07 == BPF.ALU64) print("64", .{});
             print(" r{}, ", .{i.dst});
             if (i.code & BPF.X == BPF.X) print("r{}", .{i.src}) else print("{}", .{i.imm});
+        },
+        BPF.ST, BPF.LD => {
+            _ = siz;
+            print("{s} ", .{grp});
+            if (mspec == BPF.MEM) {
+                print("[r{}{:02}] ", .{ i.dst, i.off });
+            } else if (mspec == BPF.IMM and i.src == BPF.PSEUDO_MAP_FD) {
+                print("r{}, map_fd ", .{i.dst});
+            } else {
+                print("?? ", .{});
+            }
+            print("{}", .{i.imm});
         },
         BPF.JMP => {
             const jmpspec = switch (h) {
@@ -76,9 +90,9 @@ pub fn dump_ins(i: I, ni: usize) void {
                 else => "J??",
             };
 
-            if (i.code & 0xf0 == BPF.EXIT) {
+            if (h == BPF.EXIT) {
                 print("EXIT ", .{});
-            } else if (i.code & 0xf0 == BPF.CALL) {
+            } else if (h == BPF.CALL) {
                 print("CALL ${s}", .{@tagName(@intToEnum(BPF.Helper, i.imm))});
             } else {
                 print("{s} r{}, ", .{ jmpspec, i.dst });
