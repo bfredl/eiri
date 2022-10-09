@@ -41,7 +41,8 @@ pub fn dump_ins(i: I, ni: usize) void {
         BPF.MISC => "A8M", // ALU64 or MISC
     };
 
-    const aluspec = switch (i.code & 0xf0) {
+    const h = i.code & 0xf0;
+    const aluspec = switch (h) {
         BPF.ADD => "ADD",
         BPF.SUB => "SUB",
         BPF.MUL => "MUL",
@@ -65,13 +66,22 @@ pub fn dump_ins(i: I, ni: usize) void {
             if (i.code & BPF.X == BPF.X) print("r{}", .{i.src}) else print("{}", .{i.imm});
         },
         BPF.JMP => {
+            const jmpspec = switch (h) {
+                BPF.JNE => "JNE",
+                BPF.JLT => "JLT",
+                BPF.JLE => "JLE",
+                BPF.JSGT => "JSGT",
+                BPF.JSLT => "JSLT",
+                BPF.JSLE => "JSLE",
+                else => "J??",
+            };
+
             if (i.code & 0xf0 == BPF.EXIT) {
-                print("EXIT", .{});
+                print("EXIT ", .{});
             } else if (i.code & 0xf0 == BPF.CALL) {
                 print("CALL ${s}", .{@tagName(@intToEnum(BPF.Helper, i.imm))});
             } else {
-                print("J?? ", .{});
-                print(" r{}, ", .{i.dst});
+                print("{s} r{}, ", .{ jmpspec, i.dst });
                 if (i.code & BPF.X == BPF.X) print("r{}", .{i.src}) else print("{}", .{i.imm});
             }
         },
