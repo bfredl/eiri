@@ -427,9 +427,7 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
             fallthru += 1;
         }
         // TODO: port handling trivial critical-edge block back to forklift!.
-        var alt_fallthru = if (fallthru < self.n.items.len) self.trivial_succ(@intCast(u16, fallthru)) else null;
-        print("THe FALL: {} {?}\n", .{ fallthru, alt_fallthru });
-        if ((n.s[0] == fallthru or n.s[0] == alt_fallthru) and n.s[1] != 0) {
+        if ((n.s[0] == fallthru) and n.s[1] != 0) {
             // TOTO: assert  last instruction was a cond jmp!
 
             // try makejmp(self, cfo, .nl, uv(ni), 1, labels, targets);
@@ -442,7 +440,7 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
                 } else break :default 0;
             };
 
-            if (n.s[default] != fallthru and n.s[default] != alt_fallthru and n.s[default] != 0) {
+            if (n.s[default] != fallthru and n.s[default] != 0) {
                 // try makejmp(self, cfo, null, uv(ni), default, labels, targets);
                 unreachable;
             }
