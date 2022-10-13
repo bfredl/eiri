@@ -15,6 +15,7 @@ const assert = std.debug.assert;
 
 const IPReg = BPF.Insn.Reg;
 const AluOp = bpfUtil.AluOp;
+const JmpOp = bpfUtil.JmpOp;
 
 a: Allocator,
 // TODO: unmanage all these:
@@ -125,7 +126,7 @@ pub const Inst = struct {
             .lea => .intptr, // Lea? Who's Lea??
             .store => null,
             .iop => .intptr,
-            .ilessthan => null,
+            .icmp => null,
             .ret => null,
             .vmath => null,
             .load_map_fd => .intptr,
@@ -160,7 +161,7 @@ pub const Tag = enum(u8) {
     lea,
     store,
     iop, // imath group?
-    ilessthan, // icmp group?
+    icmp, // must be LAST in a node to indicate a cond jump
     vmath,
     ret,
     // call,
@@ -226,7 +227,7 @@ pub fn n_op(tag: Tag, rw: bool) u2 {
         .lea => 2, // base, idx. elided when only used for a store!
         .store => 2, // addr, val
         .iop => 2,
-        .ilessthan => 2,
+        .icmp => 2,
         .vmath => 2,
         .ret => 1,
         .call2 => 2,
@@ -263,7 +264,7 @@ pub fn has_res(tag: Tag) bool {
         .lea => true, // Lea? Who's Lea??
         .store => false,
         .iop => true,
-        .ilessthan => false, // technically yes, but no
+        .icmp => false,
         .vmath => true,
         .ret => false,
         .xadd => false,
@@ -429,8 +430,8 @@ pub fn iop(self: *Self, node: u16, vop: AluOp, op1: u16, op2: u16) !u16 {
     return self.addInst(node, .{ .tag = .iop, .spec = vop.opx(), .op1 = op1, .op2 = op2 });
 }
 
-pub fn jeq(self: *Self, node: u16, op1: u16, op2: u16) !u16 {
-    return self.addInst(node, .{ .tag = .ilessthan, .spec = 0, .op1 = op1, .op2 = op2 });
+pub fn icmp(self: *Self, node: u16, cond: JmpOp, op1: u16, op2: u16) !u16 {
+    return self.addInst(node, .{ .tag = .icmp, .spec = @enumToInt(cond), .op1 = op1, .op2 = op2 });
 }
 
 pub fn xadd(self: *Self, node: u16, op1: u16, op2: u16) !u16 {
