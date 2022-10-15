@@ -421,9 +421,9 @@ pub fn call2(self: *Self, node: u16, func: BPF.Helper, op1: u16, op2: u16) !u16 
 }
 
 pub fn call4(self: *Self, node: u16, func: BPF.Helper, op1: u16, op2: u16, op3: u16, op4: u16) !u16 {
-    const res = self.addInst(node, .{ .tag = .call, .op1 = op1, .op2 = op2, .spec = @intCast(u8, @enumToInt(func)) });
+    const res = try self.addInst(node, .{ .tag = .call, .op1 = op1, .op2 = op2, .spec = @intCast(u8, @enumToInt(func)) });
     // TODO: indicate number of args in spec somehow? can we get this from BPF.Helper somehow?
-    self.addInst(node, .{ .tag = .callarg, .op1 = op3, .op2 = op4, .spec = 0 });
+    _ = try self.addInst(node, .{ .tag = .callarg, .op1 = op3, .op2 = op4, .spec = 0 });
     return res;
 }
 

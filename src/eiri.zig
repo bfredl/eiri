@@ -60,6 +60,27 @@ pub fn getUprobeType() !u32 {
     return std.fmt.parseInt(u32, line, 10);
 }
 
+pub fn test_stack(allocator: std.mem.Allocator) !void {
+    var c = try Codegen.init(allocator);
+    var ir = try FLIR.init(4, allocator);
+
+    const start = try ir.addNode();
+    // const arg0 = try ir.ctx_arg();
+    const arg0 = try ir.const_int(start, 0xFFF);
+    const callptr = try ir.alloc(start);
+    const const_0 = try ir.const_int(start, 0);
+    const BPF_F_USER_STACK = 0x0100;
+    const flags = try ir.const_int(start, BPF_F_USER_STACK);
+    const size = try ir.const_int(start, 8);
+    var res = try ir.call4(start, .get_stack, arg0, callptr, size, flags);
+    _ = res;
+    try ir.ret(start, const_0);
+    try ir.test_analysis();
+    ir.debug_print();
+    _ = try Codegen.codegen(&ir, &c);
+    c.dump();
+}
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
@@ -69,6 +90,8 @@ pub fn main() !void {
     var c = try Codegen.init(allocator);
 
     var ir = try FLIR.init(4, allocator);
+
+    try test_stack(allocator);
 
     const start = try ir.addNode();
     const keyvar = try ir.alloc(start);
