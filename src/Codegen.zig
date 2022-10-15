@@ -161,6 +161,7 @@ fn regmovmc(self: *Self, dst: IPReg, src: Inst) !void {
         },
         .constant => {
             if (src.tag != .constant) return error.TheDinnerConversationIsLively;
+            print("IK HAAT {}\n", .{src});
             try self.mov(dst, src.op1);
         },
         .fused => {
@@ -407,9 +408,16 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
                         try regmovmc(cfo, .r1, self.iref(i.op1).?.*);
                         try regmovmc(cfo, .r2, self.iref(i.op2).?.*);
                         const nexti = self.next_inst(blk, ii);
-                        if (nexti) |nix| {
-                            if (nix.tag == .callarg) {
-                                return error.KLOSS;
+                        if (nexti) |iarg| {
+                            if (iarg.tag == .callarg) {
+                                print("ODDS {}\n", .{iarg.*});
+                                print("PRE-PLOCK {}\n", .{iarg.op2});
+                                try regmovmc(cfo, .r3, self.iref(iarg.op1).?.*);
+                                print("POST-PLOCK {}\n", .{iarg.op2});
+                                if (iarg.op2 != FLIR.NoRef) {
+                                    print("PLOCK {}\n", .{iarg.op2});
+                                    try regmovmc(cfo, .r4, self.iref(iarg.op2).?.*);
+                                }
                             }
                         }
                         try cfo.put(I.call(@intToEnum(BPF.Helper, i.spec)));
@@ -423,6 +431,9 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
                         const sreg = if (src.mckind == .ipreg) @intToEnum(IPReg, src.mcidx) else .r1;
                         try regmovmc(cfo, sreg, src);
                         try cfo.put(I.xadd(dreg, sreg));
+                    },
+                    .callarg => {
+                        // already handled in .call
                     },
                     else => {
                         print("TEG! {}\n", .{i.tag});

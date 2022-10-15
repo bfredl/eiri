@@ -307,6 +307,7 @@ pub fn biref(self: *Self, ref: u16) ?BIREF {
         return null;
     }
     const r = fromref(ref);
+    print("REEEE {}, {}\n", .{ ref, r });
     const blk = &self.b.items[r.block];
     return BIREF{ .n = blk.node, .i = &blk.i[r.idx] };
 }
