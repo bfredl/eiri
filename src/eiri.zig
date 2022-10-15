@@ -92,6 +92,7 @@ pub fn main() !void {
     var ir = try FLIR.init(4, allocator);
 
     try test_stack(allocator);
+    if (true) return error.DUN;
 
     const start = try ir.addNode();
     const keyvar = try ir.alloc(start);

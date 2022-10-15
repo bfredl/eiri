@@ -256,12 +256,15 @@ const ValType = enum(u4) {
 pub fn next_inst(self: *Self, blk: usize, ii: usize) ?*Inst {
     var b = self.b.items[blk];
     if (ii + 1 < BLK_SIZE) {
+        print("AAAa {} {}\n", .{ blk, ii + 1 });
         return &b.i[ii + 1];
     } else {
         const nxt = b.next();
         if (nxt) |n| {
+            print("BBB {}\n", .{n});
             return &self.b.items[n].i[0];
         } else {
+            print("NEEEEN \n", .{});
             return null;
         }
     }
