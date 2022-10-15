@@ -172,7 +172,7 @@ fn regmovmc(self: *Self, dst: IPReg, src: Inst) !void {
     }
 }
 
-fn regjmpmc(self: *Self, op: bpfUtil.JmpOp, dst: IPReg, src: Inst) !u32 {
+fn regjmpmc(self: *Self, op: Insn.JmpOp, dst: IPReg, src: Inst) !u32 {
     switch (src.mckind) {
         .frameslot => {
             unreachable;
@@ -186,9 +186,7 @@ fn regjmpmc(self: *Self, op: bpfUtil.JmpOp, dst: IPReg, src: Inst) !u32 {
         .constant => {
             if (src.tag != .constant) return error.TheDinnerConversationIsLively;
             const pos = self.get_target();
-            // TODO(zig): make I.jmp public!
-            var inst = I.jle(dst, src.op1, 0x7FFF);
-            inst.code = BPF.JMP | @enumToInt(op);
+            var inst = I.jmp(op, dst, src.op1, 0x7FFF);
             try self.put(inst);
             return pos;
         },
@@ -283,7 +281,7 @@ fn movmcs(cfo: *Self, dst: Inst, src: Inst, scratch: IPReg) !void {
     }
 }
 
-pub fn makejmp(self: *FLIR, cfo: *Self, op: ?bpfUtil.JmpOp, ni: u16, si: u1, labels: []u32, targets: [][2]u32) !void {
+pub fn makejmp(self: *FLIR, cfo: *Self, op: ?Insn.JmpOp, ni: u16, si: u1, labels: []u32, targets: [][2]u32) !void {
     const succ = self.n.items[ni].s[si];
     // NOTE: we assume blk 0 always has the prologue (push rbp; mov rbp, rsp)
     // at least, so that even if blk 0 is empty, blk 1 has target larger than 0x00
@@ -349,7 +347,7 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
                     .constant => try mcmovi(cfo, i.*),
                     .icmp => {
                         const firstop = self.iref(i.op1).?.ipreg() orelse .r0;
-                        const pos = try regjmpmc(cfo, @intToEnum(bpfUtil.JmpOp, i.spec), firstop, self.iref(i.op2).?.*);
+                        const pos = try regjmpmc(cfo, @intToEnum(Insn.JmpOp, i.spec), firstop, self.iref(i.op2).?.*);
                         targets[ni][1] = pos;
                     },
                     .putphi => {

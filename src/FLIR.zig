@@ -14,8 +14,8 @@ const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 
 const IPReg = BPF.Insn.Reg;
-const AluOp = bpfUtil.AluOp;
-const JmpOp = bpfUtil.JmpOp;
+const AluOp = BPF.Insn.AluOp;
+const JmpOp = BPF.Insn.JmpOp;
 
 a: Allocator,
 // TODO: unmanage all these:
