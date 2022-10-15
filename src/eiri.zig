@@ -78,6 +78,7 @@ pub fn test_stack(allocator: std.mem.Allocator) !void {
     try ir.test_analysis();
     ir.debug_print();
     _ = try Codegen.codegen(&ir, &c);
+    p("\n", .{});
     c.dump();
 }
 
@@ -92,7 +93,6 @@ pub fn main() !void {
     var ir = try FLIR.init(4, allocator);
 
     try test_stack(allocator);
-    if (true) return error.DUN;
 
     const start = try ir.addNode();
     const keyvar = try ir.alloc(start);

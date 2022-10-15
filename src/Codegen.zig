@@ -161,7 +161,6 @@ fn regmovmc(self: *Self, dst: IPReg, src: Inst) !void {
         },
         .constant => {
             if (src.tag != .constant) return error.TheDinnerConversationIsLively;
-            print("IK HAAT {}\n", .{src});
             try self.mov(dst, src.op1);
         },
         .fused => {
@@ -409,16 +408,9 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
                         try regmovmc(cfo, .r2, self.iref(i.op2).?.*);
                         const nexti = self.next_inst(blk, ii);
                         if (nexti) |iarg| {
-                            print("PRE-ODDS {}\n", .{iarg.*});
                             if (iarg.tag == .callarg) {
-                                print("ODDS {}\n", .{iarg.*});
-                                print("yaarrg {x}\n", .{@ptrToInt(iarg)});
-                                print("PRE-PLOCK {}\n", .{iarg.op2});
                                 try regmovmc(cfo, .r3, self.iref(iarg.op1).?.*);
-                                print("yaarrg {x}\n", .{@ptrToInt(iarg)});
-                                print("POST-PLOCK {}\n", .{iarg.op2});
                                 if (iarg.op2 != FLIR.NoRef) {
-                                    print("PLOCK {}\n", .{iarg.op2});
                                     try regmovmc(cfo, .r4, self.iref(iarg.op2).?.*);
                                 }
                             }
