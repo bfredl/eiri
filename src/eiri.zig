@@ -68,47 +68,33 @@ pub fn main() !void {
 
     var c = try Codegen.init(allocator);
 
-    const I = Insn;
-    if (false) {
-        try c.put(I.mov(.r0, 0));
-        try c.put(I.stx(.word, .r10, -4, .r0)); // word [r10-4] = 0
-        try c.put(I.mov(.r2, .r10));
-        try c.put(I.add(.r2, -4)); //              r2 = r10-4
-        try c.ld_map_fd1(.r1, map); //             r1 = load_map(map)
-        try c.put(I.call(.map_lookup_elem)); //    r0 = lookup(r1, r2)
-        const t = try c.jeq(.r0, 0); //      if (r0 != 0) {
-        try c.put(I.mov(.r1, 1));
-        // TODO: UGLY, add Inst.atomic_op to stdlib BPF module
-        try c.put(I.xadd(.r0, .r1)); //              dword [r0] += 0 (atomic)
-        c.set_target(t); //  }
-        try c.put(I.exit());
-    } else {
-        var ir = try FLIR.init(4, allocator);
-        const start = try ir.addNode();
-        const keyvar = try ir.alloc(start);
-        const const_0 = try ir.const_int(start, 0);
-        _ = try ir.store(start, keyvar, const_0);
-        const m = try ir.load_map_fd(start, @intCast(u32, map));
-        var res = try ir.call2(start, .map_lookup_elem, m, keyvar);
-        const const_1 = try ir.const_int(start, 1);
-        _ = try ir.icmp(start, .jeq, res, const_0);
-        const doit = try ir.addNode();
-        _ = try ir.xadd(doit, res, const_1);
-        const end = try ir.addNode();
-        try ir.ret(end, const_0);
-        ir.n.items[start].s[0] = doit;
-        ir.n.items[start].s[1] = end;
-        ir.n.items[doit].s[0] = end;
-        ir.debug_print();
-        try ir.test_analysis();
-        ir.debug_print();
-        const pos = try Codegen.codegen(&ir, &c);
-        _ = pos;
+    var ir = try FLIR.init(4, allocator);
 
-        // c.dump();
+    const start = try ir.addNode();
+    const keyvar = try ir.alloc(start);
+    const const_0 = try ir.const_int(start, 0);
+    _ = try ir.store(start, keyvar, const_0);
+    const m = try ir.load_map_fd(start, @intCast(u32, map));
+    var res = try ir.call2(start, .map_lookup_elem, m, keyvar);
+    const const_1 = try ir.const_int(start, 1);
+    _ = try ir.icmp(start, .jeq, res, const_0);
+    const doit = try ir.addNode();
+    _ = try ir.xadd(doit, res, const_1);
+    const end = try ir.addNode();
+    try ir.ret(end, const_0);
+    ir.n.items[start].s[0] = doit;
+    ir.n.items[start].s[1] = end;
+    ir.n.items[doit].s[0] = end;
 
-        if (std.os.argv.len <= 1) return;
-    }
+    ir.debug_print();
+    try ir.test_analysis();
+    ir.debug_print();
+    const pos = try Codegen.codegen(&ir, &c);
+    _ = pos;
+
+    // c.dump();
+
+    if (std.os.argv.len <= 1) return;
 
     const fname = mem.span(std.os.argv[1]);
     const sdtname = mem.span(std.os.argv[2]);

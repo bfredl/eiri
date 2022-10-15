@@ -121,18 +121,23 @@ pub const Inst = struct {
             .putphi => null, // stated in the phi instruction
             .constant => inst.spec_type(),
             .alloc => .intptr,
-            .renum => null, // should be removed at this point
+            // .renum => null, // should be removed at this point
             .load => inst.spec_type(),
             .lea => .intptr, // Lea? Who's Lea??
             .store => null,
             .iop => .intptr,
             .icmp => null,
             .ret => null,
-            .vmath => null,
+            // .vmath => null,
             .load_map_fd => .intptr,
-            .call2 => .intptr,
+            .call => .intptr,
+            .callarg => null,
             .xadd => null,
         };
+    }
+
+    pub fn has_res(i: Inst) bool {
+        return i.res_type() != null;
     }
 
     pub fn ipreg(i: Inst) ?IPReg {
@@ -155,18 +160,18 @@ pub const Tag = enum(u8) {
     /// op1 is source and op2 is dest, to simplify stuff
     /// i e n_op(putphi) == 1 for the most part
     putphi,
-    renum,
+    // renum,
     constant,
     load,
     lea,
     store,
     iop, // imath group?
     icmp, // must be LAST in a node to indicate a cond jump
-    vmath,
+    // vmath,
     ret,
-    // call,
     load_map_fd,
-    call2, // TODO: obviously something scaleable up to 5 args
+    call,
+    callarg, // XXX: supplying args in %(i+1) for inst with result %i could be messy??
     xadd, // TODO: atomic group
 };
 
@@ -222,15 +227,16 @@ pub fn n_op(tag: Tag, rw: bool) u2 {
         // works on both: (clown_emoji)
         .putphi => if (rw) @as(u2, 2) else @as(u2, 1), // TODO: booooooo
         .constant => 0,
-        .renum => 1,
+        // .renum => 1,
         .load => 2, // base, idx
         .lea => 2, // base, idx. elided when only used for a store!
         .store => 2, // addr, val
         .iop => 2,
         .icmp => 2,
-        .vmath => 2,
+        // .vmath => 2,
         .ret => 1,
-        .call2 => 2,
+        .call => 2,
+        .callarg => 2,
         .alloc => 0,
         .load_map_fd => 0,
         .xadd => 2,
@@ -247,30 +253,18 @@ const ValType = enum(u4) {
     }
 };
 
-// TODO: refactor these to an array of InstMetadata structs
-// or this is res_type != null?
-pub fn has_res(tag: Tag) bool {
-    return switch (tag) {
-        .empty => false,
-        .arg => true,
-        .variable => true, // ASCHUALLY no, but looks like yes
-        .alloc => true,
-        .putvar => false,
-        .phi => true,
-        .putphi => false, // storage location is stated in the phi instruction
-        .constant => true,
-        .renum => true, // TODO: removed at this point
-        .load => true,
-        .lea => true, // Lea? Who's Lea??
-        .store => false,
-        .iop => true,
-        .icmp => false,
-        .vmath => true,
-        .ret => false,
-        .xadd => false,
-        .call2 => true,
-        .load_map_fd => true,
-    };
+pub fn next_inst(self: *Self, blk: usize, ii: usize) ?*Inst {
+    var b = self.b.items[blk];
+    if (ii + 1 < BLK_SIZE) {
+        return &b.i[ii + 1];
+    } else {
+        const nxt = b.next();
+        if (nxt) |n| {
+            return &self.b.items[n].i[0];
+        } else {
+            return null;
+        }
+    }
 }
 
 pub fn init(n: u16, allocator: Allocator) !Self {
@@ -423,7 +417,14 @@ pub fn binop(self: *Self, node: u16, tag: Tag, op1: u16, op2: u16) !u16 {
 
 pub fn call2(self: *Self, node: u16, func: BPF.Helper, op1: u16, op2: u16) !u16 {
     // TODO: u8 will not fit all helper functions!
-    return self.addInst(node, .{ .tag = .call2, .op1 = op1, .op2 = op2, .spec = @intCast(u8, @enumToInt(func)) });
+    return self.addInst(node, .{ .tag = .call, .op1 = op1, .op2 = op2, .spec = @intCast(u8, @enumToInt(func)) });
+}
+
+pub fn call4(self: *Self, node: u16, func: BPF.Helper, op1: u16, op2: u16, op3: u16, op4: u16) !u16 {
+    const res = self.addInst(node, .{ .tag = .call, .op1 = op1, .op2 = op2, .spec = @intCast(u8, @enumToInt(func)) });
+    // TODO: indicate number of args in spec somehow? can we get this from BPF.Helper somehow?
+    self.addInst(node, .{ .tag = .callarg, .op1 = op3, .op2 = op4, .spec = 0 });
+    return res;
 }
 
 pub fn iop(self: *Self, node: u16, vop: AluOp, op1: u16, op2: u16) !u16 {
@@ -887,7 +888,7 @@ pub fn trivial_alloc(self: *Self) !void {
                 if (i.tag == .arg) {
                     return error.OOOOOO;
                     // try self.alloc_arg(i);
-                } else if (has_res(i.tag) and i.mckind.unallocated()) {
+                } else if (i.has_res() and i.mckind.unallocated()) {
                     // const regkind: MCKind = .ipreg;
                     // const op1 = if (n_op(i.tag, false) > 0) self.iref(i.op1) else null;
                     // if (op1) |o| {
@@ -941,7 +942,7 @@ pub fn scan_alloc(self: *Self) !void {
                     try self.alloc_arg(i);
                     assert(active_ipreg[i.mcidx] <= ref);
                     active_ipreg[i.mcidx] = i.last_use;
-                } else if (has_res(i.tag) and i.mckind.unallocated()) {
+                } else if (i.has_res() and i.mckind.unallocated()) {
                     // const is_avx = (i.res_type() == ValType.fpval);
                     // const regkind: MCKind = if (is_avx) .vfreg else .ipreg;
                     // const the_active = if (is_avx) &active_avx else &active_ipreg;
@@ -1027,18 +1028,16 @@ fn print_blk(self: *Self, firstblk: u16) void {
             if (i.tag == .empty) {
                 continue;
             }
-            const chr: u8 = if (has_res(i.tag)) '=' else ' ';
+            const chr: u8 = if (i.has_res()) '=' else ' ';
             print("  %{} {c} {s}", .{ toref(blk, uv(idx)), chr, @tagName(i.tag) });
 
             if (i.tag == .variable) {
                 print(" {s}", .{@tagName(i.spec_type())});
             }
 
-            if (i.tag == .vmath) {
-                // print(".{s}", .{@tagName(i.vop())});
-            } else if (i.tag == .iop) {
+            if (i.tag == .iop) {
                 // print(".{s}", .{@tagName(@intToEnum(AluOp, i.spec))});
-            } else if (i.tag == .call2) {
+            } else if (i.tag == .call) {
                 print(" {s}", .{@tagName(@intToEnum(BPF.Helper, i.spec))});
             } else if (i.tag == .constant) {
                 print(" c[{}]", .{i.op1});

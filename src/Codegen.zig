@@ -403,9 +403,15 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
                         try mcmovreg(cfo, i.*, reg);
                     },
                     .alloc => {},
-                    .call2 => {
+                    .call => {
                         try regmovmc(cfo, .r1, self.iref(i.op1).?.*);
                         try regmovmc(cfo, .r2, self.iref(i.op2).?.*);
+                        const nexti = self.next_inst(blk, ii);
+                        if (nexti) |nix| {
+                            if (nix.tag == .callarg) {
+                                return error.KLOSS;
+                            }
+                        }
                         try cfo.put(I.call(@intToEnum(BPF.Helper, i.spec)));
                         try mcmovreg(cfo, i.*, .r0);
                     },
