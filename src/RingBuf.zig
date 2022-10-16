@@ -1,4 +1,5 @@
 const std = @import("std");
+const os = std.os;
 const linux = std.os.linux;
 const BPF = linux.BPF;
 const PERF = linux.PERF;
@@ -9,10 +10,41 @@ const errno = linux.getErrno;
 const p = std.debug.print;
 
 map_fd: fd_t,
+consumer_blk: []align(mem.page_size) u8 = undefined,
+producer_blk: []align(mem.page_size) u8 = undefined,
 
 const Self = @This();
 
-pub fn init(allocator: mem.Allocator, map_fd: fd_t) !Self {
+pub fn init(allocator: mem.Allocator, map_fd: fd_t, max_entries: usize) !Self {
     _ = allocator;
-    return .{ .map_fd = map_fd };
+    var self = Self{ .map_fd = map_fd };
+
+    self.consumer_blk = try std.os.mmap(
+        null,
+        mem.page_size,
+        os.PROT.READ | os.PROT.WRITE,
+        os.MAP.SHARED,
+        map_fd,
+        0,
+    );
+
+    self.producer_blk = try std.os.mmap(
+        null,
+        mem.page_size + 2 * max_entries,
+        os.PROT.READ,
+        os.MAP.SHARED,
+        map_fd,
+        mem.page_size,
+    );
+
+    return self;
+}
+
+pub fn read_event(self: *Self) bool {
+    const cons_pos = @atomicLoad(usize, @ptrCast(*usize, self.consumer_blk), .Acquire);
+    const prod_pos = @atomicLoad(usize, @ptrCast(*usize, self.producer_blk), .Acquire);
+    if (cons_pos < prod_pos) {
+        return true;
+    }
+    return false;
 }

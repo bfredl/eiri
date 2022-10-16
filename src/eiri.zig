@@ -89,10 +89,10 @@ pub fn main() !void {
     // dummy value for dry run
     const map = if (std.os.argv.len > 1) try BPF.map_create(.array, 4, 8, 1) else 23;
 
-    const ring_map_fd = if (std.os.argv.len > 1) try BPF.map_create(.ringbuf, 0, 0, 1024 * 4) else 57;
-    print("MAPPA: {}\n", .{ring_map_fd});
-    const ringbuf = try RingBuf.init(allocator, ring_map_fd);
-    _ = ringbuf;
+    const buffer_size: usize = 1024 * 4;
+    const ring_map_fd = if (std.os.argv.len > 1) try BPF.map_create(.ringbuf, 0, 0, buffer_size) else 57;
+    var ringbuf = try RingBuf.init(allocator, ring_map_fd, buffer_size);
+    print("MAPPA: {} {}\n", .{ ring_map_fd, ringbuf.read_event() });
 
     var c = try Codegen.init(allocator);
 
