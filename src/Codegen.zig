@@ -214,6 +214,7 @@ fn regaritmc(cfo: *Self, op: bpfUtil.AluOp, dst: IPReg, i: Inst) !void {
 }
 
 fn mcmovreg(self: *Self, dst: Inst, src: IPReg) !void {
+    if (dst.mckind.unallocated()) return;
     switch (dst.mckind) {
         .frameslot => try self.put(I.stx(.double_word, .r10, slotoff(dst.mcidx), src)),
         .ipreg => {

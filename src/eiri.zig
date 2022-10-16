@@ -164,6 +164,7 @@ pub fn main() !void {
     const ring_map_fd = if (std.os.argv.len > 1) try BPF.map_create(.ringbuf, 0, 0, buffer_size) else 57;
     var ringbuf = try RingBuf.init(allocator, ring_map_fd, buffer_size);
     print("MAPPA: {} {}\n", .{ ring_map_fd, ringbuf.read_event() });
+    var did_read = false;
 
     var c = try Codegen.init(allocator);
 
@@ -174,7 +175,7 @@ pub fn main() !void {
 
     // try test_map(&c, allocator, map);
 
-    try test_ringbuf(&c, allocator, map);
+    try test_ringbuf(&c, allocator, ring_map_fd);
     // c.dump();
 
     if (std.os.argv.len <= 1) return;
@@ -207,6 +208,10 @@ pub fn main() !void {
             lastval = value;
         }
         std.time.sleep(1e9);
+        if (!did_read and ringbuf.read_event()) {
+            did_read = true;
+            print("=======\nVERY EVENT\n======\n", .{});
+        }
     }
 
     // doesn't work on kprobe programs (more context needed?)

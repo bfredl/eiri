@@ -199,7 +199,7 @@ pub const MCKind = enum(u8) {
     // constant which is never allocated as such (consumers problem)
     constant,
 
-    fn unallocated(self: @This()) bool {
+    pub fn unallocated(self: @This()) bool {
         return switch (self) {
             .unallocated_raw => true,
             .unallocated_ipreghint => true,
@@ -911,7 +911,9 @@ pub fn trivial_alloc(self: *Self) !void {
                     //         continue;
                     //     }
                     // }
-                    if (used < regs.len) {
+                    if (i.last_use == NoRef) {
+                        // TODO: always safe??
+                    } else if (used < regs.len) {
                         i.mckind = .ipreg;
                         i.mcidx = @enumToInt(regs[used]);
                         used += 1;
