@@ -83,22 +83,8 @@ pub fn test_stack(allocator: std.mem.Allocator) !void {
     c.dump();
 }
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
-    // dummy value for dry run
-    const map = if (std.os.argv.len > 1) try BPF.map_create(.array, 4, 8, 1) else 23;
-
-    const buffer_size: usize = 1024 * 4;
-    const ring_map_fd = if (std.os.argv.len > 1) try BPF.map_create(.ringbuf, 0, 0, buffer_size) else 57;
-    var ringbuf = try RingBuf.init(allocator, ring_map_fd, buffer_size);
-    print("MAPPA: {} {}\n", .{ ring_map_fd, ringbuf.read_event() });
-
-    var c = try Codegen.init(allocator);
-
+pub fn test_map(c: *Codegen, allocator: std.mem.Allocator, map: fd_t) !void {
     var ir = try FLIR.init(4, allocator);
-
-    try test_stack(allocator);
 
     const start = try ir.addNode();
     const keyvar = try ir.alloc(start);
@@ -119,8 +105,26 @@ pub fn main() !void {
     ir.debug_print();
     try ir.test_analysis();
     ir.debug_print();
-    const pos = try Codegen.codegen(&ir, &c);
+    const pos = try Codegen.codegen(&ir, c);
     _ = pos;
+}
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+
+    const buffer_size: usize = 1024 * 4;
+    const ring_map_fd = if (std.os.argv.len > 1) try BPF.map_create(.ringbuf, 0, 0, buffer_size) else 57;
+    var ringbuf = try RingBuf.init(allocator, ring_map_fd, buffer_size);
+    print("MAPPA: {} {}\n", .{ ring_map_fd, ringbuf.read_event() });
+
+    var c = try Codegen.init(allocator);
+
+    // try test_stack(allocator);
+
+    // dummy value for dry run
+    const map = if (std.os.argv.len > 1) try BPF.map_create(.array, 4, 8, 1) else 23;
+    try test_map(&c, allocator, map);
 
     // c.dump();
 
