@@ -28,7 +28,7 @@ const Stapsdt_hdr = extern struct {
     semaphore: u64,
 };
 
-const Stapsdt = struct {
+pub const Stapsdt = struct {
     h: Stapsdt_hdr,
     provider: []const u8,
     name: []const u8,

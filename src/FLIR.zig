@@ -243,6 +243,15 @@ pub fn n_op(tag: Tag, rw: bool) u2 {
     };
 }
 
+pub fn n_op_dyn(i: *Inst, rw: bool) u2 {
+    const static_op = n_op(i.tag, rw);
+    // TODO: be more strict and consider only insts with optional ops!
+    if (static_op == 2 and i.op2 == NoRef) {
+        return 1;
+    }
+    return static_op;
+}
+
 // TODO: expand into precise types, like "dword" or "4 packed doubles"
 const ValType = enum(u4) {
     intptr = 0,
@@ -425,6 +434,10 @@ pub fn call4(self: *Self, node: u16, func: BPF.Helper, op1: u16, op2: u16, op3: 
     // TODO: indicate number of args in spec somehow? can we get this from BPF.Helper somehow?
     _ = try self.addInst(node, .{ .tag = .callarg, .op1 = op3, .op2 = op4, .spec = 0 });
     return res;
+}
+
+pub fn call3(self: *Self, node: u16, func: BPF.Helper, op1: u16, op2: u16, op3: u16) !u16 {
+    return call4(self, node, func, op1, op2, op3, NoRef);
 }
 
 pub fn iop(self: *Self, node: u16, vop: AluOp, op1: u16, op2: u16) !u16 {
@@ -742,7 +755,7 @@ pub fn reorder_inst(self: *Self) !void {
         while (cur_blk) |blk| {
             var b = &self.b.items[blk];
             for (b.i) |*i| {
-                const nops = n_op(i.tag, true);
+                const nops = n_op_dyn(i, true);
                 if (nops > 0) {
                     i.op1 = newlink[i.op1];
                     if (nops > 1) {
@@ -782,7 +795,7 @@ pub fn calc_use(self: *Self) !void {
             var b = &self.b.items[blk];
             for (b.i) |*i, idx| {
                 const ref = toref(blk, uv(idx));
-                const nops = n_op(i.tag, false);
+                const nops = n_op_dyn(i, false);
                 if (nops > 0) {
                     self.adduse(uv(ni), ref, i.op1);
                     if (nops > 1) {
@@ -827,7 +840,7 @@ pub fn calc_use(self: *Self) !void {
                     live &= ~(@as(usize, 1) << @intCast(u6, i.vreg));
                 }
 
-                const nops = n_op(i.tag, true);
+                const nops = n_op_dyn(i, true);
                 if (nops > 0) {
                     const ref = self.iref(i.op1).?;
                     if (ref.vreg != NoRef) live |= (@as(usize, 1) << @intCast(u6, ref.vreg));
@@ -1048,7 +1061,11 @@ fn print_blk(self: *Self, firstblk: u16) void {
             if (nop > 0) {
                 print(" %{}", .{i.op1});
                 if (nop > 1) {
-                    print(", %{}", .{i.op2});
+                    if (i.op2 == NoRef) {
+                        print(", %NoRef", .{});
+                    } else {
+                        print(", %{}", .{i.op2});
+                    }
                 }
             }
             print_mcval(i);

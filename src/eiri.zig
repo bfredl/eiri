@@ -109,6 +109,53 @@ pub fn test_map(c: *Codegen, allocator: std.mem.Allocator, map: fd_t) !void {
     _ = pos;
 }
 
+pub fn test_ringbuf(c: *Codegen, allocator: std.mem.Allocator, ringbuf: fd_t) !void {
+    var ir = try FLIR.init(4, allocator);
+
+    const start = try ir.addNode();
+    const const_0 = try ir.const_int(start, 0);
+    const const_8 = try ir.const_int(start, 8);
+    const m = try ir.load_map_fd(start, @intCast(u32, ringbuf));
+    var res = try ir.call3(start, .ringbuf_reserve, m, const_8, const_0);
+    // TODO: ad an else which increments "discarded" counter like test_ringbuf.c
+    _ = try ir.icmp(start, .jeq, res, const_0);
+    const doit = try ir.addNode();
+    const const_57 = try ir.const_int(doit, 57);
+    _ = try ir.store(doit, res, const_57);
+    _ = try ir.call2(doit, .ringbuf_submit, res, const_0);
+
+    const end = try ir.addNode();
+    try ir.ret(end, const_0);
+    ir.n.items[start].s[0] = doit;
+    ir.n.items[start].s[1] = end;
+    ir.n.items[doit].s[0] = end;
+
+    ir.debug_print();
+    try ir.test_analysis();
+    ir.debug_print();
+    const pos = try Codegen.codegen(&ir, c);
+    _ = pos;
+}
+
+pub fn test_get_usdt(sdts: []ElfSymbols.Stapsdt, sdtname: []const u8) !ElfSymbols.Stapsdt {
+    for (sdts) |i| {
+        print("IYTEM: {} {s} {s} {s}\n", .{ i.h, i.provider, i.name, i.argdesc });
+        if (mem.eql(u8, i.name, sdtname)) {
+            return i;
+        }
+    }
+    return error.ProbeNotFound;
+}
+
+pub fn prog_load_verbose(prog_type: BPF.ProgType, c: []BPF.Insn) !fd_t {
+    var loggen = [1]u8{0} ** 512;
+    var log = BPF.Log{ .level = 4, .buf = &loggen };
+    return BPF.prog_load(prog_type, c, &log, "MIT", 0) catch |err| {
+        print("ERROR {s}\n", .{mem.sliceTo(&loggen, 0)});
+        return err;
+    };
+}
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
@@ -124,36 +171,24 @@ pub fn main() !void {
 
     // dummy value for dry run
     const map = if (std.os.argv.len > 1) try BPF.map_create(.array, 4, 8, 1) else 23;
-    try test_map(&c, allocator, map);
 
+    // try test_map(&c, allocator, map);
+
+    try test_ringbuf(&c, allocator, map);
     // c.dump();
 
     if (std.os.argv.len <= 1) return;
 
+    const prog = try prog_load_verbose(.kprobe, c.prog());
+
     const fname = mem.span(std.os.argv[1]);
     const sdtname = mem.span(std.os.argv[2]);
-
     const elf = try ElfSymbols.init(try std.fs.cwd().openFile(fname, .{}));
+    defer elf.deinit();
     const sdts = try elf.get_sdts(allocator);
     defer sdts.deinit();
 
-    const sdt = thesdt: {
-        for (sdts.items) |i| {
-            print("IYTEM: {} {s} {s} {s}\n", .{ i.h, i.provider, i.name, i.argdesc });
-            if (mem.eql(u8, i.name, sdtname)) {
-                break :thesdt i;
-            }
-        }
-        return error.ProbeNotFound;
-    };
-
-    defer elf.deinit();
-    var loggen = [1]u8{0} ** 512;
-    var log = BPF.Log{ .level = 4, .buf = &loggen };
-    const prog = BPF.prog_load(.kprobe, c.prog(), &log, "MIT", 0) catch |err| {
-        print("ERROR {s}\n", .{mem.sliceTo(&loggen, 0)});
-        return err;
-    };
+    const sdt = try test_get_usdt(sdts.items, sdtname);
 
     const uprobe_type = try getUprobeType();
     const probe_fd = try perf_open_uprobe(uprobe_type, fname, sdt.h.pc);

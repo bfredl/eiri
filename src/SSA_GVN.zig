@@ -52,7 +52,7 @@ fn fill_blk(self: Self, first_blk: u16) !void {
                 // TODO: likely we'll never need to consider an existing
                 // phi node here but verify this!
             } else {
-                const nop = FLIR.n_op(i.tag, false);
+                const nop = FLIR.n_op_dyn(i, false);
                 if (nop > 0) {
                     i.op1 = try self.read_ref(n, i.op1);
                     if (nop > 1) {
