@@ -3,6 +3,7 @@ const bpfUtil = @import("./bpfUtil.zig");
 const Codegen = @import("./Codegen.zig");
 const ElfSymbols = @import("./ElfSymbols.zig");
 const FLIR = @import("./FLIR.zig");
+const RingBuf = @import("./RingBuf.zig");
 const linux = std.os.linux;
 const BPF = linux.BPF;
 const PERF = linux.PERF;
@@ -11,7 +12,7 @@ const io = std.io;
 const mem = std.mem;
 const fd_t = linux.fd_t;
 const errno = linux.getErrno;
-const p = std.debug.print;
+const print = std.debug.print;
 // const libbpf = @import("bpf");
 // const PerfBuffer = libbpf.PerfBuffer;
 
@@ -78,7 +79,7 @@ pub fn test_stack(allocator: std.mem.Allocator) !void {
     try ir.test_analysis();
     ir.debug_print();
     _ = try Codegen.codegen(&ir, &c);
-    p("\n", .{});
+    print("\n", .{});
     c.dump();
 }
 
@@ -87,6 +88,11 @@ pub fn main() !void {
     const allocator = gpa.allocator();
     // dummy value for dry run
     const map = if (std.os.argv.len > 1) try BPF.map_create(.array, 4, 8, 1) else 23;
+
+    const ring_map_fd = if (std.os.argv.len > 1) try BPF.map_create(.ringbuf, 0, 0, 1024 * 4) else 57;
+    print("MAPPA: {}\n", .{ring_map_fd});
+    const ringbuf = try RingBuf.init(allocator, ring_map_fd);
+    _ = ringbuf;
 
     var c = try Codegen.init(allocator);
 
@@ -129,7 +135,7 @@ pub fn main() !void {
 
     const sdt = thesdt: {
         for (sdts.items) |i| {
-            p("IYTEM: {} {s} {s} {s}\n", .{ i.h, i.provider, i.name, i.argdesc });
+            print("IYTEM: {} {s} {s} {s}\n", .{ i.h, i.provider, i.name, i.argdesc });
             if (mem.eql(u8, i.name, sdtname)) {
                 break :thesdt i;
             }
@@ -141,7 +147,7 @@ pub fn main() !void {
     var loggen = [1]u8{0} ** 512;
     var log = BPF.Log{ .level = 4, .buf = &loggen };
     const prog = BPF.prog_load(.kprobe, c.prog(), &log, "MIT", 0) catch |err| {
-        p("ERROR {s}\n", .{mem.sliceTo(&loggen, 0)});
+        print("ERROR {s}\n", .{mem.sliceTo(&loggen, 0)});
         return err;
     };
 
@@ -158,7 +164,7 @@ pub fn main() !void {
         var value: u64 = undefined;
         try BPF.map_lookup_elem(map, mem.asBytes(&key), mem.asBytes(&value));
         if (value < lastval or value > lastval + 1000) {
-            p("VALUE: {}. That's NUMBERWANG!\n", .{value});
+            print("VALUE: {}. That's NUMBERWANG!\n", .{value});
             lastval = value;
         }
         std.time.sleep(1e9);
@@ -166,6 +172,6 @@ pub fn main() !void {
 
     // doesn't work on kprobe programs (more context needed?)
     // const retval = try bpfUtil.prog_test_run(prog);
-    // p("RETURNERA: {}\n", .{retval});
+    // print("RETURNERA: {}\n", .{retval});
     defer std.os.close(prog);
 }
