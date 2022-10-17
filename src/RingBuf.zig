@@ -41,14 +41,41 @@ pub fn init(allocator: mem.Allocator, map_fd: fd_t, max_entries: usize) !Self {
     return self;
 }
 
-pub fn read_event(self: *Self) bool {
-    const cons_pos = @atomicLoad(usize, @ptrCast(*usize, self.consumer_blk), .Acquire);
+const RINGBUF_BUSY_BIT = 1 << 31;
+const RINGBUF_DISCARD_BIT = 1 << 30;
+const RINGBUF_HDR_SZ = 8;
+
+pub const Sample = struct {
+    data: ?[]u8,
+    next: usize,
+};
+
+pub fn len_roundup(len: c_uint) c_uint {
+    const afterlen = (len & ~@as(c_uint, RINGBUF_BUSY_BIT | RINGBUF_DISCARD_BIT)) + RINGBUF_HDR_SZ;
+    return (afterlen + 7) & ~@as(c_uint, 7);
+}
+
+pub fn peek_event(self: *Self) ?Sample {
+    var cons_pos = @atomicLoad(usize, @ptrCast(*usize, self.consumer_blk), .Acquire);
     const prod_pos = @atomicLoad(usize, @ptrCast(*usize, self.producer_blk), .Acquire);
     if (cons_pos < prod_pos) {
-        const len_ptr = &self.producer_blk[mem.page_size + (cons_pos & self.mask)];
-        const len = @atomicLoad(c_int, @ptrCast(*c_int, @alignCast(@alignOf(c_int), len_ptr)), .Acquire);
-        print("lenny {}\n", .{len});
-        return true;
+        const len_ptr = self.producer_blk[mem.page_size + (cons_pos & self.mask) ..];
+        const len = @atomicLoad(c_uint, @ptrCast(*c_uint, @alignCast(@alignOf(c_uint), len_ptr)), .Acquire);
+        if (len & RINGBUF_BUSY_BIT != 0) {
+            return null;
+        }
+
+        const data: ?[]u8 = if (len & RINGBUF_DISCARD_BIT == 0)
+            len_ptr[RINGBUF_HDR_SZ..][0..len]
+        else
+            null;
+
+        return .{ .next = cons_pos + len_roundup(len), .data = data };
     }
-    return false;
+    return null;
+}
+
+pub fn consume_event(self: *Self, s: Sample) void {
+    // TODO: read a batch of events before @atomicStore
+    @atomicStore(usize, @ptrCast(*usize, self.consumer_blk), s.next, .Release);
 }

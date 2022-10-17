@@ -163,7 +163,7 @@ pub fn main() !void {
     const buffer_size: usize = 1024 * 4;
     const ring_map_fd = if (std.os.argv.len > 1) try BPF.map_create(.ringbuf, 0, 0, buffer_size) else 57;
     var ringbuf = try RingBuf.init(allocator, ring_map_fd, buffer_size);
-    print("MAPPA: {} {}\n", .{ ring_map_fd, ringbuf.read_event() });
+    print("MAPPA: {} {?}\n", .{ ring_map_fd, ringbuf.peek_event() });
     var did_read = false;
 
     var c = try Codegen.init(allocator);
@@ -208,9 +208,10 @@ pub fn main() !void {
             lastval = value;
         }
         std.time.sleep(1e9);
-        if (!did_read and ringbuf.read_event()) {
+        while (ringbuf.peek_event()) |ev| {
             did_read = true;
-            print("=======\nVERY EVENT\n======\n", .{});
+            print("VERY EVENT: {}\n", .{ev});
+            ringbuf.consume_event(ev);
         }
     }
 
