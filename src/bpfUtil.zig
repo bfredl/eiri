@@ -101,3 +101,34 @@ pub fn getUprobeType() !u32 {
     const line = (try reader.readUntilDelimiterOrEof(&buf, '\n')) orelse return error.FEEL;
     return std.fmt.parseInt(u32, line, 10);
 }
+
+pub const pt_regs_amd64 = enum(u8) {
+    r15,
+    r14,
+    r13,
+    r12,
+    rbp,
+    rbx,
+    r11,
+    r10,
+    r9,
+    r8,
+    rax,
+    rcx,
+    rdx,
+    rsi,
+    rdi,
+    // On syscall entry, this is syscall#. On CPU exception, this is error code.
+    // On hw interrupt, it's IRQ number:
+    orig_ax,
+    ip,
+    cs,
+    flags,
+    rsp,
+    ss,
+};
+
+pub fn pt_off(reg: pt_regs_amd64) u16 {
+    // TODO: also for AARCH64 etc, of c
+    return @enumToInt(reg) * 8;
+}

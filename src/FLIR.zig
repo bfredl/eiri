@@ -898,7 +898,7 @@ pub fn trivial_alloc(self: *Self) !void {
                 const ref = toref(blk, uv(idx));
                 _ = ref;
 
-                if (i.tag == .arg) {
+                if (false and i.tag == .arg) {
                     return error.OOOOOO;
                     // try self.alloc_arg(i);
                 } else if (i.has_res() and i.mckind.unallocated()) {

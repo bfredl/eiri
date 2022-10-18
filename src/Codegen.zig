@@ -71,13 +71,23 @@ pub fn dump_ins(i: I, ni: usize) void {
             _ = siz;
             print("{s} ", .{grp});
             if (mspec == BPF.MEM) {
-                print("[r{}{:02}] ", .{ i.dst, i.off });
+                print("[r{}{:02}], ", .{ i.dst, i.off });
             } else if (mspec == BPF.IMM and i.src == BPF.PSEUDO_MAP_FD) {
                 print("r{}, map_fd ", .{i.dst});
             } else {
                 print("?? ", .{});
             }
             print("{}", .{i.imm});
+        },
+        BPF.STX => {
+            _ = siz;
+            print("{s} ", .{grp});
+            if (mspec == BPF.MEM) {
+                print("[r{}{:02}], ", .{ i.dst, i.off });
+            } else {
+                print("?? ", .{});
+            }
+            print("r{}", .{i.src});
         },
         BPF.JMP => {
             const jmpspec = switch (h) {
@@ -430,6 +440,10 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
                     },
                     .callarg => {
                         // already handled in .call
+                    },
+                    .arg => {
+                        if (i.op1 != 0) unreachable;
+                        try mcmovreg(cfo, i.*, .r1);
                     },
                     else => {
                         print("TEG! {}\n", .{i.tag});

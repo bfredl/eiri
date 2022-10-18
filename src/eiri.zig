@@ -67,6 +67,7 @@ pub fn test_ringbuf(c: *Codegen, allocator: std.mem.Allocator, ringbuf: fd_t) !v
     var ir = try FLIR.init(4, allocator);
 
     const start = try ir.addNode();
+    const ctx = try ir.arg();
     const const_0 = try ir.const_int(start, 0);
     const const_8 = try ir.const_int(start, 8);
     const m = try ir.load_map_fd(start, @intCast(u32, ringbuf));
@@ -74,8 +75,8 @@ pub fn test_ringbuf(c: *Codegen, allocator: std.mem.Allocator, ringbuf: fd_t) !v
     // TODO: ad an else which increments "discarded" counter like test_ringbuf.c
     _ = try ir.icmp(start, .jeq, res, const_0);
     const doit = try ir.addNode();
-    const const_57 = try ir.const_int(doit, 57);
-    _ = try ir.store(doit, res, const_57);
+    // const const_57 = try ir.const_int(doit, 57);
+    _ = try ir.store(doit, res, ctx);
     _ = try ir.call2(doit, .ringbuf_submit, res, const_0);
 
     const end = try ir.addNode();
