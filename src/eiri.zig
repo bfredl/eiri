@@ -6,7 +6,6 @@ const FLIR = @import("./FLIR.zig");
 const RingBuf = @import("./RingBuf.zig");
 const linux = std.os.linux;
 const BPF = linux.BPF;
-const PERF = linux.PERF;
 const Insn = BPF.Insn;
 const io = std.io;
 const mem = std.mem;
@@ -15,51 +14,6 @@ const errno = linux.getErrno;
 const print = std.debug.print;
 // const libbpf = @import("bpf");
 // const PerfBuffer = libbpf.PerfBuffer;
-
-pub fn perf_attach_bpf(target: fd_t, prog: fd_t) !void {
-    if (linux.ioctl(target, PERF.EVENT_IOC.SET_BPF, @intCast(u64, prog)) < 0) {
-        return error.Failed_IOC_SET_BPF;
-    }
-    if (linux.ioctl(target, PERF.EVENT_IOC.ENABLE, 0) < 0) {
-        return error.Failed_IOC_ENABLE;
-    }
-}
-
-pub fn perf_open_uprobe(uprobe_type: u32, uprobe_path: [:0]const u8, uprobe_offset: u64) !fd_t {
-    // TODO: .size should be the default (stage2 bug)
-    var attr = linux.perf_event_attr{ .size = @sizeOf(linux.perf_event_attr) };
-
-    // TODO: use /sys/devices/system/cpu/online
-    // but not needed for uprobe/kprobe???
-
-    // the type value is dynamic and might be outside the defined values of
-    // PERF.TYPE. praxis or zig std correctness issue
-    attr.type = @intToEnum(PERF.TYPE, uprobe_type);
-    attr.sample_period_or_freq = 1;
-    attr.wakeup_events_or_watermark = 1;
-    attr.config1 = @ptrToInt(uprobe_path.ptr);
-    attr.config2 = uprobe_offset;
-
-    const rc = linux.perf_event_open(&attr, -1, 0, -1, 0);
-    return switch (errno(rc)) {
-        .SUCCESS => @intCast(fd_t, rc),
-        .ACCES => error.UnsafeProgram,
-        .FAULT => error.BPFProgramFault,
-        .INVAL => error.InvalidArgument,
-        .PERM => error.AccessDenied,
-        else => |err| std.os.unexpectedErrno(err),
-    };
-}
-
-pub fn getUprobeType() !u32 {
-    const fil = try std.fs.openFileAbsolute("/sys/bus/event_source/devices/uprobe/type", .{});
-    defer fil.close();
-
-    const reader = fil.reader();
-    var buf = [1]u8{0} ** 32;
-    const line = (try reader.readUntilDelimiterOrEof(&buf, '\n')) orelse return error.FEEL;
-    return std.fmt.parseInt(u32, line, 10);
-}
 
 pub fn test_stack(allocator: std.mem.Allocator) !void {
     var c = try Codegen.init(allocator);
@@ -191,12 +145,12 @@ pub fn main() !void {
 
     const sdt = try test_get_usdt(sdts.items, sdtname);
 
-    const uprobe_type = try getUprobeType();
-    const probe_fd = try perf_open_uprobe(uprobe_type, fname, sdt.h.pc);
+    const uprobe_type = try bpfUtil.getUprobeType();
+    const probe_fd = try bpfUtil.perf_open_uprobe(uprobe_type, fname, sdt.h.pc);
 
     // TODO: would be nice if this works so we don't need ioctls..
     // _ = try bpfUtil.prog_attach_perf(probe_fd, prog);
-    try perf_attach_bpf(probe_fd, prog);
+    try bpfUtil.perf_attach_bpf(probe_fd, prog);
 
     var lastval: u64 = @truncate(u64, -1);
     while (true) {
