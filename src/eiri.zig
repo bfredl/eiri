@@ -115,7 +115,10 @@ pub fn prog_load_verbose(prog_type: BPF.ProgType, c: []BPF.Insn) !fd_t {
 pub fn test_parse() !void {
     const input = mem.span(std.os.argv[1]);
     var parser = Parser.init(input);
-    try parser.stmt();
+    parser.toplevel() catch |e| {
+        print("G00f at {} of {}\n", .{ parser.pos, input.len });
+        return e;
+    };
 }
 
 pub fn main() !void {
