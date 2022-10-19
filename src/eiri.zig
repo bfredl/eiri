@@ -4,6 +4,7 @@ const Codegen = @import("./Codegen.zig");
 const ElfSymbols = @import("./ElfSymbols.zig");
 const FLIR = @import("./FLIR.zig");
 const RingBuf = @import("./RingBuf.zig");
+const Parser = @import("./Parser.zig");
 const linux = std.os.linux;
 const BPF = linux.BPF;
 const Insn = BPF.Insn;
@@ -111,9 +112,18 @@ pub fn prog_load_verbose(prog_type: BPF.ProgType, c: []BPF.Insn) !fd_t {
     };
 }
 
+pub fn test_parse() !void {
+    const input = mem.span(std.os.argv[1]);
+    var parser = Parser.init(input);
+    try parser.stmt();
+}
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
+
+    try test_parse();
+    std.os.exit(7);
 
     const buffer_size: usize = 1024 * 4;
     const ring_map_fd = if (std.os.argv.len > 1) try BPF.map_create(.ringbuf, 0, 0, buffer_size) else 57;
