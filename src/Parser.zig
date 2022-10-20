@@ -6,8 +6,10 @@ const Self = @This();
 const std = @import("std");
 const print = std.debug.print;
 const mem = std.mem;
+const meta = std.meta;
 
 const FLIR = @import("./FLIR.zig");
+const BPF = std.os.linux.BPF;
 
 fn nonws(self: *Self) ?u8 {
     while (self.pos < self.str.len) : (self.pos += 1) {
@@ -94,7 +96,10 @@ pub fn toplevel(self: *Self, allocator: std.mem.Allocator) ParseError!void {
         const name = try require(self.identifier(), "name");
         try self.lbrk();
         print("FUNC '{s}' \n", .{name});
-        var func: Func = .{ .ir = try FLIR.init(4, allocator) };
+        var func: Func = .{
+            .ir = try FLIR.init(4, allocator),
+            .refs = std.StringHashMap(u16).init(allocator),
+        };
         func.curnode = try func.ir.addNode();
         while (true) {
             if (!try self.stmt(&func)) break;
@@ -115,6 +120,7 @@ fn expect_char(self: *Self, char: u8) ParseError!void {
 const Func = struct {
     ir: FLIR,
     curnode: u16 = FLIR.NoRef,
+    refs: std.StringHashMap(u16),
 };
 
 pub fn stmt(self: *Self, f: *Func) ParseError!bool {
@@ -126,13 +132,31 @@ pub fn stmt(self: *Self, f: *Func) ParseError!bool {
         }
     } else if (try self.varname()) |dest| {
         try self.expect_char('=');
-        if (self.num()) |numval| {
-            print("ASSIGN %{s} to NUM {}\n", .{ dest, numval });
-            _ = try f.ir.const_int(f.curnode, @intCast(u16, numval));
-        } else {
+        const item = try f.refs.getOrPut(dest);
+        if (item.found_existing) {
+            print("duplicate ref %{s}!\n", .{dest});
             return error.ParseError;
         }
+        const ref = try self.expr(f);
+        print("ASSIGN %{s} to ref {}\n", .{ dest, ref });
+        item.value_ptr.* = ref;
         return true;
+    }
+    return error.ParseError;
+}
+
+pub fn expr(self: *Self, f: *Func) ParseError!u16 {
+    if (self.num()) |numval| {
+        return f.ir.const_int(f.curnode, @intCast(u16, numval));
+    } else if (self.identifier()) |kw| {
+        if (mem.eql(u8, kw, "call")) {
+            const name = try require(self.identifier(), "name");
+            const helper = meta.stringToEnum(BPF.Helper, name) orelse {
+                print("unknown builtin function: '{s}'\n", .{name});
+                return error.ParseError;
+            };
+            return f.ir.call2(f.curnode, helper, FLIR.NoRef, FLIR.NoRef);
+        }
     }
     return error.ParseError;
 }
