@@ -112,10 +112,10 @@ pub fn prog_load_verbose(prog_type: BPF.ProgType, c: []BPF.Insn) !fd_t {
     };
 }
 
-pub fn test_parse() !void {
+pub fn test_parse(allocator: std.mem.Allocator) !void {
     const input = mem.span(std.os.argv[1]);
     var parser = Parser.init(input);
-    parser.toplevel() catch |e| {
+    parser.toplevel(allocator) catch |e| {
         print("G00f at {} of {}\n", .{ parser.pos, input.len });
         return e;
     };
@@ -125,7 +125,7 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
-    try test_parse();
+    try test_parse(allocator);
     std.os.exit(7);
 
     const buffer_size: usize = 1024 * 4;
