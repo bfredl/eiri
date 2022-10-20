@@ -145,6 +145,18 @@ pub fn stmt(self: *Self, f: *Func) ParseError!bool {
     return error.ParseError;
 }
 
+pub fn call_arg(self: *Self, f: *Func) ParseError!?u16 {
+    if (self.num()) |numval| {
+        return try f.ir.const_int(f.curnode, @intCast(u16, numval));
+    } else if (try self.varname()) |src| {
+        return f.refs.get(src) orelse {
+            print("undefined ref %{s}!\n", .{src});
+            return error.ParseError;
+        };
+    }
+    return null;
+}
+
 pub fn expr(self: *Self, f: *Func) ParseError!u16 {
     if (self.num()) |numval| {
         return f.ir.const_int(f.curnode, @intCast(u16, numval));
@@ -155,7 +167,10 @@ pub fn expr(self: *Self, f: *Func) ParseError!u16 {
                 print("unknown builtin function: '{s}'\n", .{name});
                 return error.ParseError;
             };
-            return f.ir.call2(f.curnode, helper, FLIR.NoRef, FLIR.NoRef);
+            const arg1 = try self.call_arg(f) orelse FLIR.NoRef;
+            // hacky hack: if arg1 fails so does arg2
+            const arg2 = try self.call_arg(f) orelse FLIR.NoRef;
+            return f.ir.call2(f.curnode, helper, arg1, arg2);
         }
     }
     return error.ParseError;
