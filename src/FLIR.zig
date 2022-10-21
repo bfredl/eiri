@@ -28,7 +28,6 @@ narg: u16 = 0,
 nvar: u16 = 0,
 // variables 2.0: virtual registero
 nvreg: u16 = 0,
-vregs: ArrayList(u16),
 
 // 8-byte slots in stack frame
 nslots: u8 = 0,
@@ -57,7 +56,6 @@ pub const Node = struct {
     dfs_parent: u16 = 0, // TODO: unused
     lowlink: u16 = 0,
     scc: u16 = 0, // XXX: not a topological index, just an identidifer
-    live_in: u64 = 0, // TODO: globally allocate a [n_nodes*nvreg] multibitset
 };
 
 pub const EMPTY: Inst = .{ .tag = .empty, .op1 = 0, .op2 = 0 };
@@ -281,7 +279,6 @@ pub fn init(n: u16, allocator: Allocator) !Self {
         .a = allocator,
         .n = try ArrayList(Node).initCapacity(allocator, n),
         .dfs = ArrayList(u16).init(allocator),
-        .vregs = ArrayList(u16).init(allocator),
         .sccorder = ArrayList(u16).init(allocator),
         .refs = try ArrayList(u16).initCapacity(allocator, 4 * n),
         .b = try ArrayList(Block).initCapacity(allocator, 2 * n),
@@ -773,22 +770,15 @@ pub fn adduse(self: *Self, ni: u16, user: u16, used: u16) void {
     const ref = self.biref(used).?;
     //ref.i.n_use += 1;
     ref.i.last_use = user;
-    // it leaks to another block: give it a virtual register number
+    // it leaks to another block: could do something here
     if (ref.n != ni) {
-        if (ref.i.vreg == NoRef) {
-            ref.i.vreg = self.nvreg;
-            self.nvreg += 1;
-            self.vregs.appendAssumeCapacity(used);
-        }
+        // passs
     }
 }
 
 // TODO: not idempotent! does not reset n_use=0 first.
 // NB: requires reorder_nodes() [scc] and reorder_inst()
 pub fn calc_use(self: *Self) !void {
-    // TODO: NOT LIKE THIS
-    try self.vregs.ensureTotalCapacity(64);
-
     for (self.n.items) |*n, ni| {
         var cur_blk: ?u16 = n.firstblk;
         while (cur_blk) |blk| {
@@ -807,73 +797,8 @@ pub fn calc_use(self: *Self) !void {
         }
     }
 
-    var ni: u16 = uv(self.n.items.len - 1);
-    // TODO: at this point the number of vregs is known. so a bitset for
-    // node X vreg can be allocated here.
-
-    var scc_end: ?u16 = null;
-    var scc_last: bool = false;
-
-    while (true) : (ni -= 1) {
-        const n = &self.n.items[ni];
-        var live: u64 = 0;
-        for (n.s) |s| {
-            if (s != NoRef) {
-                live |= self.n.items[s].live_in;
-            }
-        }
-
-        var cur_blk: ?u16 = n.lastblk;
-        if (scc_end == null) {
-            // end exclusive
-            scc_end = toref(cur_blk.?, BLK_SIZE - 1);
-            scc_last = true;
-        }
-        while (cur_blk) |blk| {
-            var b = &self.b.items[blk];
-            var idx: usize = BLK_SIZE;
-            while (idx > 0) {
-                idx -= 1;
-                const i = &b.i[idx];
-
-                if (i.vreg != NoRef) {
-                    live &= ~(@as(usize, 1) << @intCast(u6, i.vreg));
-                }
-
-                const nops = n_op_dyn(i, true);
-                if (nops > 0) {
-                    const ref = self.iref(i.op1).?;
-                    if (ref.vreg != NoRef) live |= (@as(usize, 1) << @intCast(u6, ref.vreg));
-                    if (nops > 1) {
-                        const ref2 = self.iref(i.op2).?;
-                        if (ref2.vreg != NoRef) live |= (@as(usize, 1) << @intCast(u6, ref2.vreg));
-                    }
-                }
-            }
-
-            cur_blk = if (blk != n.firstblk) blk - 1 else null;
-        }
-
-        n.live_in = live;
-
-        if (n.scc == ni) {
-            // if scc was not a singleton, we are now at the first node
-            // at a SCC which might be a loop. For values live
-            // at the entry, extend the liveness interval to the end
-            if (!scc_last) {
-                var ireg: u16 = 0;
-                while (ireg < self.nvreg) : (ireg += 1) {
-                    if ((live & (@as(usize, 1) << @intCast(u6, ireg))) != 0) {
-                        const i = self.iref(self.vregs.items[ireg]).?;
-                        i.last_use = math.max(i.last_use, scc_end.?);
-                    }
-                }
-            }
-            scc_end = null;
-        }
-        scc_last = false;
-        if (ni == 0) break;
-    }
+    // TODO: inst.last_use is now deceptive if last usage is inside a loop. Then the value lives
+    // to the very end of the loop. but we don't implement loops for BPF yet :P
 }
 
 pub fn alloc_arg(self: *Self, inst: *Inst) !void {
@@ -1002,16 +927,6 @@ pub fn debug_print(self: *Self) void {
     print("\n", .{});
     for (self.n.items) |*n, i| {
         print("node {} (npred {}, scc {}):", .{ i, n.npred, n.scc });
-        if (n.live_in != 0) {
-            print(" LIVEIN", .{});
-            var ireg: u16 = 0;
-            while (ireg < self.nvreg) : (ireg += 1) {
-                const live = (n.live_in & (@as(usize, 1) << @intCast(u6, ireg))) != 0;
-                if (live) {
-                    print(" {}", .{ireg});
-                }
-            }
-        }
 
         if (n.firstblk == NoRef) {
             print(" VERY DEAD\n", .{});
