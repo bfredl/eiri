@@ -85,7 +85,6 @@ fn require(val: anytype, what: []const u8) ParseError!@TypeOf(val.?) {
 
 pub fn toplevel(self: *Self, allocator: std.mem.Allocator) ParseError!void {
     const kw = self.identifier() orelse return;
-    print("keyworda {?s}\n", .{kw});
     if (mem.eql(u8, kw, "map")) {
         const name = try require(self.identifier(), "name");
         const kind = try require(self.identifier(), "kind");
@@ -105,6 +104,10 @@ pub fn toplevel(self: *Self, allocator: std.mem.Allocator) ParseError!void {
             if (!try self.stmt(&func)) break;
             try self.lbrk();
         }
+        func.ir.debug_print();
+    } else {
+        print("keyworda {?s}\n", .{kw});
+        return error.ParseError;
     }
 }
 
@@ -127,7 +130,9 @@ pub fn stmt(self: *Self, f: *Func) ParseError!bool {
     if (self.identifier()) |kw| {
         if (mem.eql(u8, kw, "end")) {
             return false;
-        } else if (mem.eql(u8, kw, "bar")) {
+        } else if (mem.eql(u8, kw, "ret")) {
+            const retval = try require(try self.call_arg(f), "return value");
+            try f.ir.ret(f.curnode, retval);
             return true;
         }
     } else if (try self.varname()) |dest| {
@@ -138,7 +143,6 @@ pub fn stmt(self: *Self, f: *Func) ParseError!bool {
             return error.ParseError;
         }
         const ref = try self.expr(f);
-        print("ASSIGN %{s} to ref {}\n", .{ dest, ref });
         item.value_ptr.* = ref;
         return true;
     }
@@ -170,7 +174,16 @@ pub fn expr(self: *Self, f: *Func) ParseError!u16 {
             const arg1 = try self.call_arg(f) orelse FLIR.NoRef;
             // hacky hack: if arg1 fails so does arg2
             const arg2 = try self.call_arg(f) orelse FLIR.NoRef;
-            return f.ir.call2(f.curnode, helper, arg1, arg2);
+            const arg3 = try self.call_arg(f) orelse FLIR.NoRef;
+            const arg4 = try self.call_arg(f) orelse FLIR.NoRef;
+            // TODO: WTF
+            if (arg3 != FLIR.NoRef) {
+                return f.ir.call4(f.curnode, helper, arg1, arg2, arg3, arg4);
+            } else {
+                return f.ir.call2(f.curnode, helper, arg1, arg2);
+            }
+        } else if (mem.eql(u8, kw, "alloc")) {
+            return f.ir.alloc(f.curnode);
         }
     }
     return error.ParseError;

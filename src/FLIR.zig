@@ -406,7 +406,7 @@ pub fn const_int(self: *Self, node: u16, val: u16) !u16 {
 
 pub fn alloc(self: *Self, node: u16) !u16 {
     if (self.nslots == 255) {
-        return error.UDunGoofed;
+        return error.OutOfMemory; // TODO: yes, but actually no
     }
     const slot = self.nslots;
     self.nslots += 1;

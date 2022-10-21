@@ -35,20 +35,28 @@ pub const Stapsdt = struct {
     argdesc: []const u8,
 };
 
-pub fn init(elf_file: File) !Self {
-    const stat = try os.fstat(elf_file.handle);
+pub fn bytemap_ro(file: File) ![]const u8 {
+    const stat = try os.fstat(file.handle);
     const size = std.math.cast(usize, stat.size) orelse return error.FileTooBig;
 
     // This one is to read the ELF info. We do more mmapping later
     // corresponding to the actual LOAD sections.
-    const file_bytes = try os.mmap(
+    return (try os.mmap(
         null,
         mem.alignForward(size, mem.page_size),
         os.PROT.READ,
         os.MAP.PRIVATE,
-        elf_file.handle,
+        file.handle,
         0,
-    );
+    ))[0..size];
+}
+
+pub fn init(elf_file: File) !Self {
+
+    // This one is to read the ELF info. We do more mmapping later
+    // corresponding to the actual LOAD sections.
+    const file_bytes = bytemap_ro(elf_file);
+
     const elf_hdr = try std.elf.Header.parse(file_bytes[0..64]);
     var stream = io.fixedBufferStream(file_bytes);
 

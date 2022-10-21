@@ -113,7 +113,9 @@ pub fn prog_load_verbose(prog_type: BPF.ProgType, c: []BPF.Insn) !fd_t {
 }
 
 pub fn test_parse(allocator: std.mem.Allocator) !void {
-    const input = mem.span(std.os.argv[1]);
+    const fname = mem.span(std.os.argv[1]);
+    const fil = try std.fs.cwd().openFile(fname, .{});
+    const input = try ElfSymbols.bytemap_ro(fil);
     var parser = Parser.init(input);
     parser.toplevel(allocator) catch |e| {
         print("G00f at {} of {}\n", .{ parser.pos, input.len });
