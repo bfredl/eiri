@@ -1,11 +1,24 @@
 str: []const u8,
 pos: usize,
 
+fd_objs: std.StringHashMap(i32),
+allocator: Allocator,
+
+pub fn init(str: []const u8, allocator: Allocator) Self {
+    return .{
+        .str = str,
+        .pos = 0,
+        .fd_objs = std.StringHashMap(i32).init(allocator),
+        .allocator = allocator,
+    };
+}
+
 const Self = @This();
 
 const std = @import("std");
 const print = std.debug.print;
 const mem = std.mem;
+const Allocator = mem.Allocator;
 const meta = std.meta;
 
 const FLIR = @import("./FLIR.zig");
@@ -60,10 +73,10 @@ fn varname(self: *Self) ParseError!?Chunk {
     return self.str[start..self.pos];
 }
 
-fn num(self: *Self) ?i32 {
+fn num(self: *Self) ?u32 {
     const first = self.nonws() orelse return null;
     if (!('0' <= first and first <= '9')) return null;
-    var val: i32 = 0;
+    var val: u32 = 0;
     while (self.pos < self.str.len) : (self.pos += 1) {
         const next = self.str[self.pos];
         if ('0' <= next and next <= '9') {
@@ -83,21 +96,42 @@ fn require(val: anytype, what: []const u8) ParseError!@TypeOf(val.?) {
     };
 }
 
-pub fn toplevel(self: *Self, allocator: std.mem.Allocator) ParseError!void {
+pub fn parse(self: *Self) !void {
+    while (self.nonws()) |next| {
+        if (next == '\n') {
+            self.pos += 1;
+            continue;
+        }
+        try self.toplevel();
+    }
+}
+
+pub fn toplevel(self: *Self) !void {
     const kw = self.identifier() orelse return;
     if (mem.eql(u8, kw, "map")) {
         const name = try require(self.identifier(), "name");
         const kind = try require(self.identifier(), "kind");
         const key_size = try require(self.num(), "key_size");
         const val_size = try require(self.num(), "val_size");
+        const n_entries = try require(self.num(), "n_entries");
+        const item = try nonexisting(&self.fd_objs, name, "object");
         print("map '{s}' of kind {s}, key={}, val={}\n", .{ name, kind, key_size, val_size });
+        const map_kind = meta.stringToEnum(BPF.MapType, kind) orelse {
+            print("unknown map kind: '{s}'\n", .{kind});
+            return error.ParseError;
+        };
+        const fd = if (true)
+            try BPF.map_create(map_kind, key_size, val_size, n_entries)
+        else
+            0;
+        item.* = fd;
     } else if (mem.eql(u8, kw, "func")) {
         const name = try require(self.identifier(), "name");
         try self.lbrk();
         print("FUNC '{s}' \n", .{name});
         var func: Func = .{
-            .ir = try FLIR.init(4, allocator),
-            .refs = std.StringHashMap(u16).init(allocator),
+            .ir = try FLIR.init(4, self.allocator),
+            .refs = std.StringHashMap(u16).init(self.allocator),
         };
         func.curnode = try func.ir.addNode();
         while (true) {
@@ -105,6 +139,7 @@ pub fn toplevel(self: *Self, allocator: std.mem.Allocator) ParseError!void {
             try self.lbrk();
         }
         func.ir.debug_print();
+        print("\n", .{});
     } else {
         print("keyworda {?s}\n", .{kw});
         return error.ParseError;
@@ -126,6 +161,15 @@ const Func = struct {
     refs: std.StringHashMap(u16),
 };
 
+fn nonexisting(map: anytype, key: []const u8, what: []const u8) ParseError!@TypeOf(map.getPtr(key).?) {
+    const item = try map.getOrPut(key);
+    if (item.found_existing) {
+        print("duplicate {s} %{s}!\n", .{ what, key });
+        return error.ParseError;
+    }
+    return item.value_ptr;
+}
+
 pub fn stmt(self: *Self, f: *Func) ParseError!bool {
     if (self.identifier()) |kw| {
         if (mem.eql(u8, kw, "end")) {
@@ -137,13 +181,8 @@ pub fn stmt(self: *Self, f: *Func) ParseError!bool {
         }
     } else if (try self.varname()) |dest| {
         try self.expect_char('=');
-        const item = try f.refs.getOrPut(dest);
-        if (item.found_existing) {
-            print("duplicate ref %{s}!\n", .{dest});
-            return error.ParseError;
-        }
-        const ref = try self.expr(f);
-        item.value_ptr.* = ref;
+        const item = try nonexisting(&f.refs, dest, "ref");
+        item.* = try self.expr(f);
         return true;
     }
     return error.ParseError;
@@ -187,8 +226,4 @@ pub fn expr(self: *Self, f: *Func) ParseError!u16 {
         }
     }
     return error.ParseError;
-}
-
-pub fn init(str: []const u8) Self {
-    return .{ .str = str, .pos = 0 };
 }

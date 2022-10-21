@@ -4,3 +4,6 @@ func foo
   %aa = call map_lookup_elem %map %key
   ret 0
 end
+func bar
+  ret 0
+end

@@ -116,8 +116,8 @@ pub fn test_parse(allocator: std.mem.Allocator) !void {
     const fname = mem.span(std.os.argv[1]);
     const fil = try std.fs.cwd().openFile(fname, .{});
     const input = try ElfSymbols.bytemap_ro(fil);
-    var parser = Parser.init(input);
-    parser.toplevel(allocator) catch |e| {
+    var parser = Parser.init(input, allocator);
+    parser.parse() catch |e| {
         print("G00f at {} of {}\n", .{ parser.pos, input.len });
         return e;
     };
