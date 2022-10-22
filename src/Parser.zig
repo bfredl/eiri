@@ -46,7 +46,7 @@ fn idlike(c: u8) bool {
 }
 
 const Chunk = []const u8;
-fn identifier(self: *Self) ?Chunk {
+fn keyword(self: *Self) ?Chunk {
     const first = self.nonws() orelse return null;
     if (!('a' <= first and first <= 'z')) return null;
     const start = self.pos;
@@ -59,9 +59,19 @@ fn identifier(self: *Self) ?Chunk {
     return self.str[start..self.pos];
 }
 
+fn objname(self: *Self) ParseError!?Chunk {
+    if (self.nonws() != @as(u8, '$')) return null;
+    self.pos += 1;
+    return try self.identifier();
+}
+
 fn varname(self: *Self) ParseError!?Chunk {
     if (self.nonws() != @as(u8, '%')) return null;
     self.pos += 1;
+    return try self.identifier();
+}
+
+fn identifier(self: *Self) ParseError!Chunk {
     const start = self.pos;
     while (self.pos < self.str.len) : (self.pos += 1) {
         const next = self.str[self.pos];
@@ -107,10 +117,10 @@ pub fn parse(self: *Self) !void {
 }
 
 pub fn toplevel(self: *Self) !void {
-    const kw = self.identifier() orelse return;
+    const kw = self.keyword() orelse return;
     if (mem.eql(u8, kw, "map")) {
-        const name = try require(self.identifier(), "name");
-        const kind = try require(self.identifier(), "kind");
+        const name = try require(try self.objname(), "name");
+        const kind = try require(self.keyword(), "kind");
         const key_size = try require(self.num(), "key_size");
         const val_size = try require(self.num(), "val_size");
         const n_entries = try require(self.num(), "n_entries");
@@ -126,7 +136,7 @@ pub fn toplevel(self: *Self) !void {
             0;
         item.* = fd;
     } else if (mem.eql(u8, kw, "func")) {
-        const name = try require(self.identifier(), "name");
+        const name = try require(try self.objname(), "name");
         try self.lbrk();
         print("FUNC '{s}' \n", .{name});
         var func: Func = .{
@@ -171,7 +181,7 @@ fn nonexisting(map: anytype, key: []const u8, what: []const u8) ParseError!@Type
 }
 
 pub fn stmt(self: *Self, f: *Func) ParseError!bool {
-    if (self.identifier()) |kw| {
+    if (self.keyword()) |kw| {
         if (mem.eql(u8, kw, "end")) {
             return false;
         } else if (mem.eql(u8, kw, "ret")) {
@@ -203,9 +213,9 @@ pub fn call_arg(self: *Self, f: *Func) ParseError!?u16 {
 pub fn expr(self: *Self, f: *Func) ParseError!u16 {
     if (self.num()) |numval| {
         return f.ir.const_int(f.curnode, @intCast(u16, numval));
-    } else if (self.identifier()) |kw| {
+    } else if (self.keyword()) |kw| {
         if (mem.eql(u8, kw, "call")) {
-            const name = try require(self.identifier(), "name");
+            const name = try require(self.keyword(), "name");
             const helper = meta.stringToEnum(BPF.Helper, name) orelse {
                 print("unknown builtin function: '{s}'\n", .{name});
                 return error.ParseError;

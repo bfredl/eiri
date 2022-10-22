@@ -1,9 +1,9 @@
-func foo
+func $foo
   %key = alloc
   %map = 0
   %aa = call map_lookup_elem %map %key
   ret 0
 end
-func bar
+func $bar
   ret 0
 end
