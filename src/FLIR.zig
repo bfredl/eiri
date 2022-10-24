@@ -812,6 +812,8 @@ pub fn alloc_arg(self: *Self, inst: *Inst) !void {
 // fills up some registers, and then goes to the stack.
 // reuses op1 if it is from the same block and we are the last user
 pub fn trivial_alloc(self: *Self) !void {
+    // force analysis of BPF.Insn before BPF.Insn.Reg to work around a stage3 bug
+    _ = @sizeOf(BPF.Insn);
     const regs: [4]IPReg = .{ .r6, .r7, .r8, .r9 };
     // const regs: [0]IPReg = .{};
     var used: usize = self.narg;
