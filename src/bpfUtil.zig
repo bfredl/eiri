@@ -5,6 +5,7 @@ const fd_t = linux.fd_t;
 const mem = std.mem;
 const errno = linux.getErrno;
 const PERF = linux.PERF;
+const print = std.debug.print;
 
 // TODO: all of this should be extended and then upstreamed to zig stdlib
 
@@ -131,4 +132,13 @@ pub const pt_regs_amd64 = enum(u8) {
 pub fn pt_off(reg: pt_regs_amd64) u16 {
     // TODO: also for AARCH64 etc, of c
     return @enumToInt(reg) * 8;
+}
+
+pub fn prog_load_verbose(prog_type: BPF.ProgType, c: []BPF.Insn) !fd_t {
+    var loggen = [1]u8{0} ** 512;
+    var log = BPF.Log{ .level = 4, .buf = &loggen };
+    return BPF.prog_load(prog_type, c, &log, "MIT", 0) catch |err| {
+        print("ERROR {s}\n", .{mem.sliceTo(&loggen, 0)});
+        return err;
+    };
 }

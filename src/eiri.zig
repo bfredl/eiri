@@ -103,21 +103,12 @@ pub fn test_get_usdt(sdts: []ElfSymbols.Stapsdt, sdtname: []const u8) !ElfSymbol
     return error.ProbeNotFound;
 }
 
-pub fn prog_load_verbose(prog_type: BPF.ProgType, c: []BPF.Insn) !fd_t {
-    var loggen = [1]u8{0} ** 512;
-    var log = BPF.Log{ .level = 4, .buf = &loggen };
-    return BPF.prog_load(prog_type, c, &log, "MIT", 0) catch |err| {
-        print("ERROR {s}\n", .{mem.sliceTo(&loggen, 0)});
-        return err;
-    };
-}
-
 pub fn test_parse(allocator: std.mem.Allocator) !void {
     const fname = mem.span(std.os.argv[1]);
     const fil = try std.fs.cwd().openFile(fname, .{});
     const input = try ElfSymbols.bytemap_ro(fil);
     var parser = Parser.init(input, allocator);
-    parser.parse() catch |e| {
+    parser.parse(false) catch |e| {
         print("G00f at {} of {}\n", .{ parser.pos, input.len });
         return e;
     };
@@ -150,7 +141,7 @@ pub fn main() !void {
 
     if (std.os.argv.len <= 1) return;
 
-    const prog = try prog_load_verbose(.kprobe, c.prog());
+    const prog = try bpfUtil.prog_load_verbose(.kprobe, c.prog());
 
     const fname = mem.span(std.os.argv[1]);
     const sdtname = mem.span(std.os.argv[2]);

@@ -22,7 +22,9 @@ const Allocator = mem.Allocator;
 const meta = std.meta;
 
 const FLIR = @import("./FLIR.zig");
+const bpfUtil = @import("./bpfUtil.zig");
 const BPF = std.os.linux.BPF;
+const Codegen = @import("./Codegen.zig");
 
 fn nonws(self: *Self) ?u8 {
     while (self.pos < self.str.len) : (self.pos += 1) {
@@ -106,17 +108,17 @@ fn require(val: anytype, what: []const u8) ParseError!@TypeOf(val.?) {
     };
 }
 
-pub fn parse(self: *Self) !void {
+pub fn parse(self: *Self, exec: bool) !void {
     while (self.nonws()) |next| {
         if (next == '\n') {
             self.pos += 1;
             continue;
         }
-        try self.toplevel();
+        try self.toplevel(exec);
     }
 }
 
-pub fn toplevel(self: *Self) !void {
+pub fn toplevel(self: *Self, exec: bool) !void {
     const kw = self.keyword() orelse return;
     if (mem.eql(u8, kw, "map")) {
         const name = try require(try self.objname(), "name");
@@ -124,21 +126,22 @@ pub fn toplevel(self: *Self) !void {
         const key_size = try require(self.num(), "key_size");
         const val_size = try require(self.num(), "val_size");
         const n_entries = try require(self.num(), "n_entries");
-        const item = try nonexisting(&self.fd_objs, name, "object");
+        const item = try nonexisting(&self.fd_objs, name, "object $");
         print("map '{s}' of kind {s}, key={}, val={}\n", .{ name, kind, key_size, val_size });
         const map_kind = meta.stringToEnum(BPF.MapType, kind) orelse {
             print("unknown map kind: '{s}'\n", .{kind});
             return error.ParseError;
         };
-        const fd = if (true)
+        const fd = if (exec)
             try BPF.map_create(map_kind, key_size, val_size, n_entries)
         else
-            0;
+            57;
         item.* = fd;
     } else if (mem.eql(u8, kw, "func")) {
         const name = try require(try self.objname(), "name");
         try self.lbrk();
         print("FUNC '{s}' \n", .{name});
+        const item = try nonexisting(&self.fd_objs, name, "object $");
         var func: Func = .{
             .ir = try FLIR.init(4, self.allocator),
             .refs = std.StringHashMap(u16).init(self.allocator),
@@ -148,8 +151,14 @@ pub fn toplevel(self: *Self) !void {
             if (!try self.stmt(&func)) break;
             try self.lbrk();
         }
+        try func.ir.test_analysis();
         func.ir.debug_print();
+        var c = try Codegen.init(self.allocator);
+        _ = try Codegen.codegen(&func.ir, &c);
         print("\n", .{});
+        c.dump();
+        const prog = if (exec) try bpfUtil.prog_load_verbose(.kprobe, c.prog()) else 83;
+        item.* = prog;
     } else {
         print("keyworda {?s}\n", .{kw});
         return error.ParseError;
@@ -174,7 +183,7 @@ const Func = struct {
 fn nonexisting(map: anytype, key: []const u8, what: []const u8) ParseError!@TypeOf(map.getPtr(key).?) {
     const item = try map.getOrPut(key);
     if (item.found_existing) {
-        print("duplicate {s} %{s}!\n", .{ what, key });
+        print("duplicate {s}{s}!\n", .{ what, key });
         return error.ParseError;
     }
     return item.value_ptr;
@@ -191,7 +200,7 @@ pub fn stmt(self: *Self, f: *Func) ParseError!bool {
         }
     } else if (try self.varname()) |dest| {
         try self.expect_char('=');
-        const item = try nonexisting(&f.refs, dest, "ref");
+        const item = try nonexisting(&f.refs, dest, "ref %");
         item.* = try self.expr(f);
         return true;
     }
@@ -233,6 +242,13 @@ pub fn expr(self: *Self, f: *Func) ParseError!u16 {
             }
         } else if (mem.eql(u8, kw, "alloc")) {
             return f.ir.alloc(f.curnode);
+        } else if (mem.eql(u8, kw, "map")) {
+            const name = try require(try self.objname(), "map name");
+            const map_fd = self.fd_objs.get(name) orelse {
+                print("undefined map ${s}!\n", .{name});
+                return error.ParseError;
+            };
+            return f.ir.load_map_fd(f.curnode, @intCast(u64, map_fd));
         }
     }
     return error.ParseError;
