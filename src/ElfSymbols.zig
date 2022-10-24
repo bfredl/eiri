@@ -15,12 +15,12 @@ const ArrayList = std.ArrayList;
 
 const Self = @This();
 
-file_bytes: []align(mem.page_size) u8,
+file_bytes: []align(mem.page_size) const u8,
 header: elf.Header,
-shstrtab: ?[]u8 = null,
-symtab: ?[]elf.Elf64_Sym = null,
-strtab: ?[]u8 = null,
-note_std: ?[]align(4) u8 = null,
+shstrtab: ?[]const u8 = null,
+symtab: ?[]const elf.Elf64_Sym = null,
+strtab: ?[]const u8 = null,
+note_std: ?[]align(4) const u8 = null,
 
 const Stapsdt_hdr = extern struct {
     pc: u64,
@@ -35,7 +35,7 @@ pub const Stapsdt = struct {
     argdesc: []const u8,
 };
 
-pub fn bytemap_ro(file: File) ![]const u8 {
+pub fn bytemap_ro(file: File) ![]align(mem.page_size) const u8 {
     const stat = try os.fstat(file.handle);
     const size = std.math.cast(usize, stat.size) orelse return error.FileTooBig;
 
@@ -55,7 +55,7 @@ pub fn init(elf_file: File) !Self {
 
     // This one is to read the ELF info. We do more mmapping later
     // corresponding to the actual LOAD sections.
-    const file_bytes = bytemap_ro(elf_file);
+    const file_bytes = try bytemap_ro(elf_file);
 
     const elf_hdr = try std.elf.Header.parse(file_bytes[0..64]);
     var stream = io.fixedBufferStream(file_bytes);
@@ -94,7 +94,7 @@ pub fn init(elf_file: File) !Self {
         if (st.sh_entsize != 0 + @sizeOf(elf.Elf64_Sym)) return error.Miiii;
         const symtab_raw = file_bytes[st.sh_offset..][0..st.sh_size];
         const items = st.sh_size / st.sh_entsize;
-        self.symtab = @ptrCast([*]elf.Elf64_Sym, @alignCast(8, symtab_raw.ptr))[0..items];
+        self.symtab = @ptrCast([*]const elf.Elf64_Sym, @alignCast(8, symtab_raw.ptr))[0..items];
     }
 
     if (strtab) |st| {
@@ -131,7 +131,7 @@ pub fn get_sdts(self: *const Self, allocator: Allocator) !ArrayList(Stapsdt) {
     // TODO: 0 + @sizeOf() to avoid compiler bug
     const hlen = 0 + @sizeOf(elf.Elf64_Nhdr);
     while (itemmem.len >= hlen) {
-        const header = @ptrCast(*elf.Elf64_Nhdr, itemmem.ptr);
+        const header = @ptrCast(*const elf.Elf64_Nhdr, itemmem.ptr);
         const notename = itemmem[hlen..][0..header.n_namesz];
         const nlen = mem.alignForward(header.n_namesz, 4);
 

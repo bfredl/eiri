@@ -103,48 +103,51 @@ pub fn test_get_usdt(sdts: []ElfSymbols.Stapsdt, sdtname: []const u8) !ElfSymbol
     return error.ProbeNotFound;
 }
 
-pub fn test_parse(allocator: std.mem.Allocator) !void {
-    const fname = mem.span(std.os.argv[1]);
-    const fil = try std.fs.cwd().openFile(fname, .{});
-    const input = try ElfSymbols.bytemap_ro(fil);
-    var parser = Parser.init(input, allocator);
-    parser.parse(false) catch |e| {
-        print("G00f at {} of {}\n", .{ parser.pos, input.len });
-        return e;
-    };
-}
-
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
-    try test_parse(allocator);
-    std.os.exit(7);
+    const for_real = std.os.argv.len > 2;
 
     const buffer_size: usize = 1024 * 4;
-    const ring_map_fd = if (std.os.argv.len > 1) try BPF.map_create(.ringbuf, 0, 0, buffer_size) else 57;
+    const ring_map_fd = if (for_real) try BPF.map_create(.ringbuf, 0, 0, buffer_size) else 57;
+    const map_count = if (for_real) try BPF.map_create(.array, 4, 8, 1) else 23;
+
+    const irfname = mem.span(std.os.argv[1]);
+    const fil = try std.fs.cwd().openFile(irfname, .{});
+    const input = try ElfSymbols.bytemap_ro(fil);
+    var parser = Parser.init(input, allocator);
+    try parser.fd_objs.put("ring_buf", ring_map_fd);
+    try parser.fd_objs.put("count", map_count);
+    parser.parse(for_real) catch |e| {
+        print("G00f at {} of {}\n", .{ parser.pos, input.len });
+        return e;
+    };
+
+    const prog = parser.fd_objs.get("main") orelse {
+        print("lol no $main\n", .{});
+        std.os.exit(7);
+    };
+
     var ringbuf = try RingBuf.init(allocator, ring_map_fd, buffer_size);
     print("MAPPA: {} {?}\n", .{ ring_map_fd, ringbuf.peek_event() });
     var did_read = false;
 
-    var c = try Codegen.init(allocator);
+    // var c = try Codegen.init(allocator);
 
     // try test_stack(allocator);
 
     // dummy value for dry run
-    const map = if (std.os.argv.len > 1) try BPF.map_create(.array, 4, 8, 1) else 23;
 
     // try test_map(&c, allocator, map);
 
-    try test_ringbuf(&c, allocator, ring_map_fd);
+    // try test_ringbuf(&c, allocator, ring_map_fd);
     // c.dump();
 
-    if (std.os.argv.len <= 1) return;
+    if (std.os.argv.len <= 2) return;
 
-    const prog = try bpfUtil.prog_load_verbose(.kprobe, c.prog());
-
-    const fname = mem.span(std.os.argv[1]);
-    const sdtname = mem.span(std.os.argv[2]);
+    const fname = mem.span(std.os.argv[2]);
+    const sdtname = mem.span(std.os.argv[3]);
     const elf = try ElfSymbols.init(try std.fs.cwd().openFile(fname, .{}));
     defer elf.deinit();
     const sdts = try elf.get_sdts(allocator);
@@ -163,7 +166,7 @@ pub fn main() !void {
     while (true) {
         const key: u32 = 0;
         var value: u64 = undefined;
-        try BPF.map_lookup_elem(map, mem.asBytes(&key), mem.asBytes(&value));
+        try BPF.map_lookup_elem(map_count, mem.asBytes(&key), mem.asBytes(&value));
         if (value < lastval or value > lastval + 1000) {
             print("VALUE: {}. That's NUMBERWANG!\n", .{value});
             lastval = value;

@@ -1,6 +1,7 @@
-func $foo
+func $main
   %key = alloc
-  %map = 0
+  store %key 0
+  %map = map $count
   %aa = call map_lookup_elem %map %key
   ret 0
 end
