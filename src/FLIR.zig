@@ -441,12 +441,12 @@ pub fn iop(self: *Self, node: u16, vop: AluOp, op1: u16, op2: u16) !u16 {
     return self.addInst(node, .{ .tag = .iop, .spec = vop.opx(), .op1 = op1, .op2 = op2 });
 }
 
-pub fn icmp(self: *Self, node: u16, cond: JmpOp, op1: u16, op2: u16) !u16 {
-    return self.addInst(node, .{ .tag = .icmp, .spec = @enumToInt(cond), .op1 = op1, .op2 = op2 });
+pub fn icmp(self: *Self, node: u16, cond: JmpOp, op1: u16, op2: u16) !void {
+    _ = try self.addInst(node, .{ .tag = .icmp, .spec = @enumToInt(cond), .op1 = op1, .op2 = op2 });
 }
 
-pub fn xadd(self: *Self, node: u16, op1: u16, op2: u16) !u16 {
-    return self.addInst(node, .{ .tag = .xadd, .op1 = op1, .op2 = op2 });
+pub fn xadd(self: *Self, node: u16, op1: u16, op2: u16) !void {
+    _ = try self.addInst(node, .{ .tag = .xadd, .op1 = op1, .op2 = op2 });
 }
 
 pub fn putvar(self: *Self, node: u16, op1: u16, op2: u16) !void {
@@ -459,8 +459,8 @@ pub fn store2(self: *Self, node: u16, base: u16, idx: u16, val: u16) !u16 {
     return self.addInst(node, .{ .tag = .store, .op1 = addr, .op2 = val, .spec = self.iref(val).?.spec });
 }
 
-pub fn store(self: *Self, node: u16, addr: u16, val: u16) !u16 {
-    return self.addInst(node, .{ .tag = .store, .op1 = addr, .op2 = val, .spec = self.iref(val).?.spec });
+pub fn store(self: *Self, node: u16, addr: u16, val: u16) !void {
+    _ = try self.addInst(node, .{ .tag = .store, .op1 = addr, .op2 = val, .spec = self.iref(val).?.spec });
 }
 
 pub fn ret(self: *Self, node: u16, val: u16) !void {
@@ -697,21 +697,24 @@ pub fn reorder_inst(self: *Self) !void {
     const newlink = try self.a.alloc(u16, self.b.items.len * BLK_SIZE);
     mem.set(u16, newlink, NoRef);
     const newblkpos = try self.a.alloc(u16, self.b.items.len);
-    // not needed but for debug:
-    // mem.set(u16, newblkpos, NoRef);
+    mem.set(u16, newblkpos, NoRef);
     defer self.a.free(newlink);
     defer self.a.free(newblkpos);
     var newpos: u16 = 0;
 
     // already in scc order
-    for (self.n.items) |*n| {
+    for (self.n.items) |*n, ni| {
         var cur_blk: ?u16 = n.firstblk;
         var blklink: ?u16 = null;
+
+        print("BLACK BRICK {} {?}\n", .{ ni, cur_blk });
 
         while (cur_blk) |old_blk| {
             // TRICKY: we might have swapped out the block
             const newblk = newpos >> BLK_SHIFT;
-            const blk = if (old_blk < newblk) newblkpos[old_blk] else old_blk;
+            const blk = if (newblkpos[old_blk] != NoRef) newblkpos[old_blk] else old_blk;
+
+            print("SWABBA {} {} {}\n", .{ old_blk, newblk, blk });
 
             var b = &self.b.items[blk];
             // TODO: RUNDA UPP
@@ -728,8 +731,13 @@ pub fn reorder_inst(self: *Self) !void {
                 newpos += 1;
             }
 
-            newblkpos[newblk] = blk;
-            // newblkpos[blk] = newblk;
+            if (blk != newblk) {
+                const oldval = if (newblkpos[newblk] != NoRef) newblkpos[newblk] else newblk;
+                newblkpos[blk] = newblk;
+                newblkpos[oldval] = blk;
+                print("newblkpos[{}] = {}\n", .{ blk, newblkpos[blk] });
+                print("newblkpos[{}] = {}\n", .{ oldval, newblkpos[oldval] });
+            }
 
             cur_blk = b.next();
 
@@ -1031,12 +1039,15 @@ pub fn test_analysis(self: *Self) !void {
     try self.reorder_nodes();
     try SSA_GVN.ssa_gvn(self);
 
+    self.debug_print();
     try self.reorder_inst();
+    self.debug_print();
     try self.calc_use();
     try self.trivial_alloc();
     // try self.scan_alloc();
 
     try self.remove_empty();
+    std.os.exit(1);
 }
 
 pub fn remove_empty(self: *Self) !void {

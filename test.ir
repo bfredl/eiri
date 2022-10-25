@@ -1,8 +1,10 @@
 func $main
   %key = alloc
-  store %key 0
+  store [%key] 0
   %map = map $count
   %aa = call map_lookup_elem %map %key
+  eq %aa 0
+  xadd [%aa] 1
   ret 0
 end
 func $bar

@@ -44,13 +44,13 @@ pub fn test_map(c: *Codegen, allocator: std.mem.Allocator, map: fd_t) !void {
     const start = try ir.addNode();
     const keyvar = try ir.alloc(start);
     const const_0 = try ir.const_int(start, 0);
-    _ = try ir.store(start, keyvar, const_0);
+    try ir.store(start, keyvar, const_0);
     const m = try ir.load_map_fd(start, @intCast(u32, map));
     var res = try ir.call2(start, .map_lookup_elem, m, keyvar);
     const const_1 = try ir.const_int(start, 1);
-    _ = try ir.icmp(start, .jeq, res, const_0);
+    try ir.icmp(start, .jeq, res, const_0);
     const doit = try ir.addNode();
-    _ = try ir.xadd(doit, res, const_1);
+    try ir.xadd(doit, res, const_1);
     const end = try ir.addNode();
     try ir.ret(end, const_0);
     ir.n.items[start].s[0] = doit;

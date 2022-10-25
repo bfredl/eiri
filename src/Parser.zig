@@ -147,10 +147,12 @@ pub fn toplevel(self: *Self, exec: bool) !void {
             .refs = std.StringHashMap(u16).init(self.allocator),
         };
         func.curnode = try func.ir.addNode();
+        func.exitnode = try func.ir.addNode();
         while (true) {
             if (!try self.stmt(&func)) break;
             try self.lbrk();
         }
+        func.ir.debug_print();
         try func.ir.test_analysis();
         func.ir.debug_print();
         var c = try Codegen.init(self.allocator);
@@ -177,6 +179,7 @@ fn expect_char(self: *Self, char: u8) ParseError!void {
 const Func = struct {
     ir: FLIR,
     curnode: u16 = FLIR.NoRef,
+    exitnode: u16 = FLIR.NoRef,
     refs: std.StringHashMap(u16),
 };
 
@@ -194,8 +197,39 @@ pub fn stmt(self: *Self, f: *Func) ParseError!bool {
         if (mem.eql(u8, kw, "end")) {
             return false;
         } else if (mem.eql(u8, kw, "ret")) {
+            if (f.curnode == f.exitnode) {
+                print("unreachable exit\n", .{});
+                return error.ParseError;
+            }
+            f.ir.n.items[f.curnode].s[0] = f.exitnode;
+            f.curnode = f.exitnode;
             const retval = try require(try self.call_arg(f), "return value");
             try f.ir.ret(f.curnode, retval);
+            return true;
+        } else if (mem.eql(u8, kw, "eq")) {
+            const dest = try require(try self.call_arg(f), "dest");
+            const src = try require(try self.call_arg(f), "src");
+            try f.ir.icmp(f.curnode, .jeq, dest, src);
+
+            // TODO: infamous interlude
+            const newnode = try f.ir.addNode();
+            f.ir.n.items[f.curnode].s[0] = newnode;
+            f.ir.n.items[f.curnode].s[1] = f.exitnode;
+            f.curnode = newnode;
+            return true;
+        } else if (mem.eql(u8, kw, "store")) {
+            try self.expect_char('[');
+            const dest = try require(try self.call_arg(f), "destination");
+            try self.expect_char(']');
+            const value = try require(try self.call_arg(f), "value");
+            try f.ir.store(f.curnode, dest, value);
+            return true;
+        } else if (mem.eql(u8, kw, "xadd")) {
+            try self.expect_char('[');
+            const dest = try require(try self.call_arg(f), "destination");
+            try self.expect_char(']');
+            const value = try require(try self.call_arg(f), "value");
+            try f.ir.xadd(f.curnode, dest, value);
             return true;
         }
     } else if (try self.varname()) |dest| {
