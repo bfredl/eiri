@@ -7,6 +7,3 @@ func $main
   xadd [%aa] 1
   ret 0
 end
-func $bar
-  ret 0
-end

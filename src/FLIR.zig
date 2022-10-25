@@ -703,18 +703,14 @@ pub fn reorder_inst(self: *Self) !void {
     var newpos: u16 = 0;
 
     // already in scc order
-    for (self.n.items) |*n, ni| {
+    for (self.n.items) |*n| {
         var cur_blk: ?u16 = n.firstblk;
         var blklink: ?u16 = null;
-
-        print("BLACK BRICK {} {?}\n", .{ ni, cur_blk });
 
         while (cur_blk) |old_blk| {
             // TRICKY: we might have swapped out the block
             const newblk = newpos >> BLK_SHIFT;
             const blk = if (newblkpos[old_blk] != NoRef) newblkpos[old_blk] else old_blk;
-
-            print("SWABBA {} {} {}\n", .{ old_blk, newblk, blk });
 
             var b = &self.b.items[blk];
             // TODO: RUNDA UPP
@@ -735,8 +731,6 @@ pub fn reorder_inst(self: *Self) !void {
                 const oldval = if (newblkpos[newblk] != NoRef) newblkpos[newblk] else newblk;
                 newblkpos[blk] = newblk;
                 newblkpos[oldval] = blk;
-                print("newblkpos[{}] = {}\n", .{ blk, newblkpos[blk] });
-                print("newblkpos[{}] = {}\n", .{ oldval, newblkpos[oldval] });
             }
 
             cur_blk = b.next();
@@ -1039,15 +1033,12 @@ pub fn test_analysis(self: *Self) !void {
     try self.reorder_nodes();
     try SSA_GVN.ssa_gvn(self);
 
-    self.debug_print();
     try self.reorder_inst();
-    self.debug_print();
     try self.calc_use();
     try self.trivial_alloc();
     // try self.scan_alloc();
 
     try self.remove_empty();
-    std.os.exit(1);
 }
 
 pub fn remove_empty(self: *Self) !void {
