@@ -134,10 +134,14 @@ pub fn pt_off(reg: pt_regs_amd64) u16 {
     return @enumToInt(reg) * 8;
 }
 
-pub fn prog_load_verbose(prog_type: BPF.ProgType, c: []BPF.Insn) !fd_t {
+pub fn prog_load_verbose(prog_type: BPF.ProgType, c: []BPF.Insn, license: []const u8) !fd_t {
     var loggen = [1]u8{0} ** 512;
     var log = BPF.Log{ .level = 4, .buf = &loggen };
-    return BPF.prog_load(prog_type, c, &log, "MIT", 0) catch |err| {
+    var license_buf: [32]u8 = undefined;
+    if (license.len > 31) return error.InvalidProgram;
+    mem.copy(u8, &license_buf, license);
+    license_buf[license.len] = 0;
+    return BPF.prog_load(prog_type, c, &log, &license_buf, 0) catch |err| {
         print("ERROR {s}\n", .{mem.sliceTo(&loggen, 0)});
         return err;
     };

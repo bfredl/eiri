@@ -474,7 +474,7 @@ pub fn prePhi(self: *Self, node: u16, v: Inst) !u16 {
 // TODO: maintain wf of block 0: first all args, then all vars.
 
 pub fn arg(self: *Self) !u16 {
-    if (self.n.items.len == 0) return error.EEEEE;
+    if (self.n.items.len == 0) return error.FLIRError;
     const inst = try self.addInst(0, .{ .tag = .arg, .op1 = self.narg, .op2 = 0, .spec = Inst.TODO_INT_SPEC });
     self.narg += 1;
     return inst;
@@ -489,11 +489,15 @@ pub fn variable(self: *Self) !u16 {
 
 pub fn trivial_succ(self: *Self, ni: u16) ?u16 {
     const node = &self.n.items[ni];
+    print("nodda {} {} {}\n", .{ ni, node.firstblk, node.lastblk });
     if (node.firstblk == node.lastblk) {
         const blk = self.b.items[node.firstblk];
         for (blk.i) |i| {
             if (i.tag != .empty) return null;
         }
+    } else {
+        // we assume reorder_inst will kasta empty blocks, true??
+        return null;
     }
     assert(node.s[1] == 0);
     return node.s[0];
@@ -1043,10 +1047,12 @@ pub fn test_analysis(self: *Self) !void {
 
 pub fn remove_empty(self: *Self) !void {
     for (self.n.items) |*n, ni| {
-        for (n.s) |*s| {
+        for (n.s) |*s, si| {
+            print("we say NI {}, SI {} = {}\n", .{ ni, si, s.* });
             if (s.* == 0) continue;
             const fallthrough = self.trivial_succ(s.*);
             if (fallthrough) |f| {
+                print("FELL {}\n", .{f});
                 const b = &self.n.items[s.*];
                 b.npred = 0;
                 s.* = f;

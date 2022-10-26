@@ -117,7 +117,7 @@ pub fn main() !void {
     const fil = try std.fs.cwd().openFile(irfname, .{});
     const input = try ElfSymbols.bytemap_ro(fil);
     var parser = Parser.init(input, allocator);
-    try parser.fd_objs.put("ring_buf", ring_map_fd);
+    try parser.fd_objs.put("ringbuf", ring_map_fd);
     try parser.fd_objs.put("count", map_count);
     parser.parse(for_real) catch |e| {
         print("G00f at {} of {}\n", .{ parser.pos, input.len });
@@ -167,7 +167,7 @@ pub fn main() !void {
         const key: u32 = 0;
         var value: u64 = undefined;
         try BPF.map_lookup_elem(map_count, mem.asBytes(&key), mem.asBytes(&value));
-        if (value < lastval or value > lastval + 1000) {
+        if (value < lastval or value > lastval + 1) {
             print("VALUE: {}. That's NUMBERWANG!\n", .{value});
             lastval = value;
         }

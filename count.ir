@@ -1,4 +1,4 @@
-func $main
+func $main MIT
   %key = alloc
   store [%key] 0
   %map = map $count

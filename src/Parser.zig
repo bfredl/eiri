@@ -44,13 +44,13 @@ fn lbrk(self: *Self) ParseError!void {
 }
 
 fn idlike(c: u8) bool {
-    return ('a' <= c and c <= 'z') or ('0' < c and c < '9') or c == '_';
+    return ('a' <= c and c <= 'z') or ('A' <= c and c <= 'Z') or ('0' < c and c < '9') or c == '_';
 }
 
 const Chunk = []const u8;
 fn keyword(self: *Self) ?Chunk {
-    const first = self.nonws() orelse return null;
-    if (!('a' <= first and first <= 'z')) return null;
+    const c = self.nonws() orelse return null;
+    if (!('a' <= c and c <= 'z') and !('A' <= c and c <= 'Z')) return null;
     const start = self.pos;
     while (self.pos < self.str.len) : (self.pos += 1) {
         const next = self.str[self.pos];
@@ -100,7 +100,7 @@ fn num(self: *Self) ?u32 {
     return val;
 }
 
-const ParseError = error{ ParseError, OutOfMemory };
+const ParseError = error{ ParseError, OutOfMemory, FLIRError };
 fn require(val: anytype, what: []const u8) ParseError!@TypeOf(val.?) {
     return val orelse {
         print("missing {s}\n", .{what});
@@ -139,6 +139,7 @@ pub fn toplevel(self: *Self, exec: bool) !void {
         item.* = fd;
     } else if (mem.eql(u8, kw, "func")) {
         const name = try require(try self.objname(), "name");
+        const license = try require(self.keyword(), "license");
         try self.lbrk();
         print("FUNC '{s}' \n", .{name});
         const item = try nonexisting(&self.fd_objs, name, "object $");
@@ -159,7 +160,7 @@ pub fn toplevel(self: *Self, exec: bool) !void {
         _ = try Codegen.codegen(&func.ir, &c);
         print("\n", .{});
         c.dump();
-        const prog = if (exec) try bpfUtil.prog_load_verbose(.kprobe, c.prog()) else 83;
+        const prog = if (exec) try bpfUtil.prog_load_verbose(.kprobe, c.prog(), license) else 83;
         item.* = prog;
     } else {
         print("keyworda {?s}\n", .{kw});
@@ -274,6 +275,8 @@ pub fn expr(self: *Self, f: *Func) ParseError!u16 {
             } else {
                 return f.ir.call2(f.curnode, helper, arg1, arg2);
             }
+        } else if (mem.eql(u8, kw, "arg")) {
+            return f.ir.arg();
         } else if (mem.eql(u8, kw, "alloc")) {
             return f.ir.alloc(f.curnode);
         } else if (mem.eql(u8, kw, "map")) {
