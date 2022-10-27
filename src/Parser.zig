@@ -61,16 +61,22 @@ fn keyword(self: *Self) ?Chunk {
     return self.str[start..self.pos];
 }
 
-fn objname(self: *Self) ParseError!?Chunk {
-    if (self.nonws() != @as(u8, '$')) return null;
+fn prefixed(self: *Self, sigil: u8) ParseError!?Chunk {
+    if (self.nonws() != sigil) return null;
     self.pos += 1;
     return try self.identifier();
 }
 
+fn objname(self: *Self) ParseError!?Chunk {
+    return self.prefixed('$');
+}
+
 fn varname(self: *Self) ParseError!?Chunk {
-    if (self.nonws() != @as(u8, '%')) return null;
-    self.pos += 1;
-    return try self.identifier();
+    return self.prefixed('%');
+}
+
+fn labelname(self: *Self) ParseError!?Chunk {
+    return self.prefixed(':');
 }
 
 fn identifier(self: *Self) ParseError!Chunk {
@@ -146,9 +152,9 @@ pub fn toplevel(self: *Self, exec: bool) !void {
         var func: Func = .{
             .ir = try FLIR.init(4, self.allocator),
             .refs = std.StringHashMap(u16).init(self.allocator),
+            .labels = std.StringHashMap(u16).init(self.allocator),
         };
         func.curnode = try func.ir.addNode();
-        func.exitnode = try func.ir.addNode();
         while (true) {
             if (!try self.stmt(&func)) break;
             try self.lbrk();
@@ -180,8 +186,8 @@ fn expect_char(self: *Self, char: u8) ParseError!void {
 const Func = struct {
     ir: FLIR,
     curnode: u16 = FLIR.NoRef,
-    exitnode: u16 = FLIR.NoRef,
     refs: std.StringHashMap(u16),
+    labels: std.StringHashMap(u16),
 };
 
 fn nonexisting(map: anytype, key: []const u8, what: []const u8) ParseError!@TypeOf(map.getPtr(key).?) {
@@ -193,30 +199,35 @@ fn nonexisting(map: anytype, key: []const u8, what: []const u8) ParseError!@Type
     return item.value_ptr;
 }
 
+fn get_label(f: *Func, name: []const u8, allow_existing: bool) ParseError!u16 {
+    const item = try f.labels.getOrPut(name);
+    if (item.found_existing) {
+        if (!allow_existing and !f.ir.empty(item.value_ptr.*, false)) {
+            print("duplicate label :{s}!\n", .{name});
+            return error.ParseError;
+        }
+    } else {
+        item.value_ptr.* = try f.ir.addNode();
+    }
+    return item.value_ptr.*;
+}
+
 pub fn stmt(self: *Self, f: *Func) ParseError!bool {
     if (self.keyword()) |kw| {
         if (mem.eql(u8, kw, "end")) {
             return false;
         } else if (mem.eql(u8, kw, "ret")) {
-            if (f.curnode == f.exitnode) {
-                print("unreachable exit\n", .{});
-                return error.ParseError;
-            }
-            f.ir.n.items[f.curnode].s[0] = f.exitnode;
-            f.curnode = f.exitnode;
             const retval = try require(try self.call_arg(f), "return value");
             try f.ir.ret(f.curnode, retval);
             return true;
         } else if (mem.eql(u8, kw, "eq")) {
             const dest = try require(try self.call_arg(f), "dest");
             const src = try require(try self.call_arg(f), "src");
+            const target = try require(try self.labelname(), "src");
             try f.ir.icmp(f.curnode, .jeq, dest, src);
 
-            // TODO: infamous interlude
-            const newnode = try f.ir.addNode();
-            f.ir.n.items[f.curnode].s[0] = newnode;
-            f.ir.n.items[f.curnode].s[1] = f.exitnode;
-            f.curnode = newnode;
+            // TODO: mark current node as DED, need either a new node or an unconditional jump
+            f.ir.n.items[f.curnode].s[1] = try get_label(f, target, true);
             return true;
         } else if (mem.eql(u8, kw, "store")) {
             try self.expect_char('[');
@@ -237,6 +248,22 @@ pub fn stmt(self: *Self, f: *Func) ParseError!bool {
         try self.expect_char('=');
         const item = try nonexisting(&f.refs, dest, "ref %");
         item.* = try self.expr(f);
+        return true;
+    } else if (try self.labelname()) |label| {
+        const item = try f.labels.getOrPut(label);
+        if (item.found_existing) {
+            if (!f.ir.empty(item.value_ptr.*, false)) {
+                print("duplicate label :{s}!\n", .{label});
+                return error.ParseError;
+            }
+        } else {
+            item.value_ptr.* = try f.ir.addNode();
+        }
+
+        if (f.ir.n.items[f.curnode].s[0] == 0) {
+            f.ir.n.items[f.curnode].s[0] = item.value_ptr.*;
+        }
+        f.curnode = item.value_ptr.*;
         return true;
     }
     return error.ParseError;

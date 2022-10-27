@@ -2,8 +2,10 @@ func $main GPL
   %ctx = arg
   %map = map $ringbuf
   %buf = call ringbuf_reserve %map 16 0
-  eq %buf 0
+  eq %buf 0 :exit
+:doit
   %res = call get_stack %ctx %buf 16 256
   %status = call ringbuf_submit %buf 0
+:exit
   ret 0
 end

@@ -331,6 +331,15 @@ pub fn addNode(self: *Self) !u16 {
     return nodeid;
 }
 
+/// only updates `maybe_pred` if it does not already have a default successor
+pub fn addNodeAfter(self: *Self, maybe_pred: u16) !u16 {
+    const nodeid = try self.addNode();
+    if (self.n.items[maybe_pred].s[0] == 0) {
+        self.n.items[maybe_pred].s[0] = nodeid;
+    }
+    return nodeid;
+}
+
 // add inst to the end of block
 pub fn addInst(self: *Self, node: u16, inst: Inst) !u16 {
     const n = &self.n.items[node];
@@ -487,19 +496,25 @@ pub fn variable(self: *Self) !u16 {
     return inst;
 }
 
-pub fn trivial_succ(self: *Self, ni: u16) ?u16 {
+pub fn empty(self: *Self, ni: u16, allow_succ: bool) bool {
     const node = &self.n.items[ni];
-    print("nodda {} {} {}\n", .{ ni, node.firstblk, node.lastblk });
+    if (!allow_succ and node.s[0] != 0) return false;
     if (node.firstblk == node.lastblk) {
         const blk = self.b.items[node.firstblk];
         for (blk.i) |i| {
-            if (i.tag != .empty) return null;
+            if (i.tag != .empty) return false;
         }
+        assert(node.s[1] == 0);
+        return true;
     } else {
         // we assume reorder_inst will kasta empty blocks, true??
-        return null;
+        return false;
     }
-    assert(node.s[1] == 0);
+}
+
+pub fn trivial_succ(self: *Self, ni: u16) ?u16 {
+    const node = &self.n.items[ni];
+    if (!self.empty(ni, true)) return null;
     return node.s[0];
 }
 
@@ -1047,12 +1062,10 @@ pub fn test_analysis(self: *Self) !void {
 
 pub fn remove_empty(self: *Self) !void {
     for (self.n.items) |*n, ni| {
-        for (n.s) |*s, si| {
-            print("we say NI {}, SI {} = {}\n", .{ ni, si, s.* });
+        for (n.s) |*s| {
             if (s.* == 0) continue;
             const fallthrough = self.trivial_succ(s.*);
             if (fallthrough) |f| {
-                print("FELL {}\n", .{f});
                 const b = &self.n.items[s.*];
                 b.npred = 0;
                 s.* = f;
