@@ -160,7 +160,7 @@ pub fn toplevel(self: *Self, exec: bool) !void {
             try self.lbrk();
         }
         func.ir.debug_print();
-        try func.ir.test_analysis();
+        try func.ir.test_analysis(true);
         func.ir.debug_print();
         var c = try Codegen.init(self.allocator);
         _ = try Codegen.codegen(&func.ir, &c);

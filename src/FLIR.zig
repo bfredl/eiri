@@ -1045,19 +1045,24 @@ fn print_mcval(i: Inst) void {
 const test_allocator = std.testing.allocator;
 const expectEqual = std.testing.expectEqual;
 
-pub fn test_analysis(self: *Self) !void {
+pub fn test_analysis(self: *Self, comptime check: bool) !void {
+    if (check) try self.check_cfg_valid();
     try self.calc_preds();
 
     try self.calc_scc(); // also provides dfs
     try self.reorder_nodes();
+    if (check) try self.check_cfg_valid();
     try SSA_GVN.ssa_gvn(self);
 
     try self.reorder_inst();
+    if (check) try self.check_cfg_valid();
     try self.calc_use();
     try self.trivial_alloc();
     // try self.scan_alloc();
 
+    if (check) try self.check_cfg_valid();
     try self.remove_empty();
+    if (check) try self.check_cfg_valid();
 }
 
 pub fn remove_empty(self: *Self) !void {
@@ -1072,5 +1077,42 @@ pub fn remove_empty(self: *Self) !void {
                 self.addpred(f, @intCast(u16, ni));
             }
         }
+    }
+}
+
+pub fn get_jmp_or_last(self: *Self, n: *Node) !?Tag {
+    var cur_blk: ?u16 = n.firstblk;
+    var last_inst: ?Tag = null;
+    while (cur_blk) |blk| {
+        var b = &self.b.items[blk];
+        for (b.i) |i| {
+            if (i.tag == .empty) {
+                continue;
+            }
+            if (last_inst) |l| if (l == .icmp or l == .ret) return error.InvalidCFG;
+            last_inst = i.tag;
+        }
+        cur_blk = b.next();
+    }
+    return last_inst;
+}
+
+/// does not use or verify node.npred
+pub fn check_cfg_valid(self: *Self) !void {
+    const reached = try self.a.alloc(bool, self.n.items.len);
+    mem.set(bool, reached, false);
+    for (self.n.items) |*n| {
+        for (n.s) |s| {
+            if (s > self.n.items.len) return error.InvalidCFG;
+            reached[s] = true;
+        }
+    }
+    for (self.n.items) |*n, ni| {
+        const last = try self.get_jmp_or_last(n);
+        if ((last == Tag.icmp) != (n.s[1] != 0)) return error.InvalidCFG;
+        if (last == Tag.ret and n.s[0] != 0) return error.InvalidCFG;
+        if (n.s[0] == 0 and (last != Tag.ret and reached[ni])) return error.InvalidCFG;
+        // TODO: also !reached and n.s[0] != 0 (not verified by remove_empty)
+        if (!reached[ni] and (last != null)) return error.InvalidCFG;
     }
 }
