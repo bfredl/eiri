@@ -1100,6 +1100,7 @@ pub fn get_jmp_or_last(self: *Self, n: *Node) !?Tag {
 /// does not use or verify node.npred
 pub fn check_cfg_valid(self: *Self) !void {
     const reached = try self.a.alloc(bool, self.n.items.len);
+    defer self.a.free(reached);
     mem.set(bool, reached, false);
     for (self.n.items) |*n| {
         for (n.s) |s| {
@@ -1115,4 +1116,33 @@ pub fn check_cfg_valid(self: *Self) !void {
         // TODO: also !reached and n.s[0] != 0 (not verified by remove_empty)
         if (!reached[ni] and (last != null)) return error.InvalidCFG;
     }
+}
+
+test "cfg: simple" {
+    var ir = try init(4, test_allocator);
+    defer ir.deinit();
+    const start = try ir.addNode();
+    const doit = try ir.addNodeAfter(start);
+    const end = try ir.addNodeAfter(doit);
+    const const_0 = try ir.const_int(end, 0);
+    try ir.ret(end, const_0);
+    try ir.test_analysis(true);
+}
+
+test "cfg: branch" {
+    var ir = try init(4, test_allocator);
+    defer ir.deinit();
+
+    const start = try ir.addNode();
+    const ctx = try ir.arg();
+    const const_0 = try ir.const_int(start, 0);
+    try ir.icmp(start, .jeq, ctx, const_0);
+    const doit = try ir.addNodeAfter(start);
+    const const_1 = try ir.const_int(doit, 1);
+    try ir.xadd(doit, ctx, const_1);
+    const end = try ir.addNodeAfter(doit);
+    try ir.ret(end, const_0);
+    ir.n.items[start].s[1] = end;
+
+    try ir.test_analysis(true);
 }
