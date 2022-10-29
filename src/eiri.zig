@@ -144,17 +144,6 @@ pub fn main() !void {
     }
     var did_read = false;
 
-    // var c = try Codegen.init(allocator);
-
-    // try test_stack(allocator);
-
-    // dummy value for dry run
-
-    // try test_map(&c, allocator, map);
-
-    // try test_ringbuf(&c, allocator, ring_map_fd);
-    // c.dump();
-
     var lastval: u64 = @truncate(u64, -1);
     while (true) {
         const key: u32 = 0;
