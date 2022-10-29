@@ -1,3 +1,5 @@
+map $ringbuf ringbuf 0 0 4096
+
 func $main GPL
   %ctx = arg
   %map = map $ringbuf

@@ -1,14 +1,20 @@
 str: []const u8,
 pos: usize,
 
-fd_objs: std.StringHashMap(i32),
+fd_objs: std.StringHashMap(struct {
+    fd: fd_t,
+    data: union(enum) {
+        map: struct { key: usize, val: usize, entries: usize },
+        prog: struct {},
+    },
+}),
 allocator: Allocator,
 
 pub fn init(str: []const u8, allocator: Allocator) Self {
     return .{
         .str = str,
         .pos = 0,
-        .fd_objs = std.StringHashMap(i32).init(allocator),
+        .fd_objs = @TypeOf(init(str, allocator).fd_objs).init(allocator),
         .allocator = allocator,
     };
 }
@@ -25,6 +31,8 @@ const FLIR = @import("./FLIR.zig");
 const bpfUtil = @import("./bpfUtil.zig");
 const BPF = std.os.linux.BPF;
 const Codegen = @import("./Codegen.zig");
+
+const fd_t = std.os.fd_t;
 
 fn nonws(self: *Self) ?u8 {
     while (self.pos < self.str.len) : (self.pos += 1) {
@@ -142,7 +150,7 @@ pub fn toplevel(self: *Self, exec: bool) !void {
             try BPF.map_create(map_kind, key_size, val_size, n_entries)
         else
             57;
-        item.* = fd;
+        item.* = .{ .fd = fd, .data = .{ .map = .{ .key = key_size, .val = val_size, .entries = n_entries } } };
     } else if (mem.eql(u8, kw, "func")) {
         const name = try require(try self.objname(), "name");
         const license = try require(self.keyword(), "license");
@@ -167,7 +175,7 @@ pub fn toplevel(self: *Self, exec: bool) !void {
         print("\n", .{});
         c.dump();
         const prog = if (exec) try bpfUtil.prog_load_verbose(.kprobe, c.prog(), license) else 83;
-        item.* = prog;
+        item.* = .{ .fd = prog, .data = .{ .prog = .{} } };
     } else {
         print("keyworda {?s}\n", .{kw});
         return error.ParseError;
@@ -308,11 +316,15 @@ pub fn expr(self: *Self, f: *Func) ParseError!u16 {
             return f.ir.alloc(f.curnode);
         } else if (mem.eql(u8, kw, "map")) {
             const name = try require(try self.objname(), "map name");
-            const map_fd = self.fd_objs.get(name) orelse {
+            const object = self.fd_objs.get(name) orelse {
                 print("undefined map ${s}!\n", .{name});
                 return error.ParseError;
             };
-            return f.ir.load_map_fd(f.curnode, @intCast(u64, map_fd));
+            if (object.data != .map) {
+                print("object is not a map: ${s}!\n", .{name});
+                return error.ParseError;
+            }
+            return f.ir.load_map_fd(f.curnode, @intCast(u64, object.fd));
         }
     }
     return error.ParseError;

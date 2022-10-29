@@ -109,28 +109,45 @@ pub fn main() !void {
 
     const for_real = std.os.argv.len > 2;
 
-    const buffer_size: usize = 1024 * 4;
-    const ring_map_fd = if (for_real) try BPF.map_create(.ringbuf, 0, 0, buffer_size) else 57;
     const map_count = if (for_real) try BPF.map_create(.array, 4, 8, 1) else 23;
 
     const irfname = mem.span(std.os.argv[1]);
     const fil = try std.fs.cwd().openFile(irfname, .{});
     const input = try ElfSymbols.bytemap_ro(fil);
     var parser = Parser.init(input, allocator);
-    try parser.fd_objs.put("ringbuf", ring_map_fd);
-    try parser.fd_objs.put("count", map_count);
+    // try parser.fd_objs.put("count", map_count);
     parser.parse(for_real) catch |e| {
         print("G00f at {} of {}\n", .{ parser.pos, input.len });
         return e;
     };
 
-    const prog = parser.fd_objs.get("main") orelse {
+    const main_obj = parser.fd_objs.get("main") orelse {
         print("lol no $main\n", .{});
         std.os.exit(7);
     };
 
-    var ringbuf = try RingBuf.init(allocator, ring_map_fd, buffer_size);
-    print("MAPPA: {} {?}\n", .{ ring_map_fd, ringbuf.peek_event() });
+    if (main_obj.data != .prog) {
+        print("lol $main is not a program\n", .{});
+        std.os.exit(8);
+    }
+    const prog = main_obj.fd;
+
+    var ring_map_fd: ?i32 = null;
+    var buffer_size: usize = 0;
+    if (parser.fd_objs.get("ringbuf")) |ringbuf_obj| {
+        switch (ringbuf_obj.data) {
+            .map => |map| buffer_size = map.entries,
+            else => return error.raaaa,
+        }
+        ring_map_fd = ringbuf_obj.fd;
+    }
+
+    // try parser.fd_objs.put("ringbuf", ring_map_fd);
+
+    var ringbuf = if (ring_map_fd) |fd| try RingBuf.init(allocator, fd, buffer_size) else null;
+    if (ringbuf) |*rb| {
+        print("MAPPA: {} {?}\n", .{ ring_map_fd.?, rb.peek_event() });
+    }
     var did_read = false;
 
     // var c = try Codegen.init(allocator);
@@ -172,10 +189,12 @@ pub fn main() !void {
             lastval = value;
         }
         std.time.sleep(1e9);
-        while (ringbuf.peek_event()) |ev| {
-            did_read = true;
-            print("VERY EVENT: {}\n", .{ev});
-            ringbuf.consume_event(ev);
+        if (ringbuf) |*rb| {
+            while (rb.peek_event()) |ev| {
+                did_read = true;
+                print("VERY EVENT: {}\n", .{ev});
+                rb.consume_event(ev);
+            }
         }
     }
 
