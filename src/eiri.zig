@@ -126,20 +126,24 @@ pub fn main() !void {
         std.os.exit(7);
     };
 
-    if (main_obj.data != .prog) {
-        print("lol $main is not a program\n", .{});
-        std.os.exit(8);
-    }
-    const prog = main_obj.fd;
+    const prog = switch (main_obj) {
+        .prog => |p| p.fd,
+        else => {
+            print("lol $main is not a program\n", .{});
+            std.os.exit(8);
+        },
+    };
 
     var ring_map_fd: ?i32 = null;
     var buffer_size: usize = 0;
     if (parser.fd_objs.get("ringbuf")) |ringbuf_obj| {
-        switch (ringbuf_obj.data) {
-            .map => |map| buffer_size = map.entries,
+        switch (ringbuf_obj) {
+            .map => |map| {
+                buffer_size = map.entries;
+                ring_map_fd = map.fd;
+            },
             else => return error.raaaa,
         }
-        ring_map_fd = ringbuf_obj.fd;
     }
 
     // try parser.fd_objs.put("ringbuf", ring_map_fd);

@@ -1,12 +1,9 @@
 str: []const u8,
 pos: usize,
 
-fd_objs: std.StringHashMap(struct {
-    fd: fd_t,
-    data: union(enum) {
-        map: struct { key: usize, val: usize, entries: usize },
-        prog: struct {},
-    },
+fd_objs: std.StringHashMap(union(enum) {
+    map: struct { fd: fd_t, key: usize, val: usize, entries: usize },
+    prog: struct { fd: fd_t },
 }),
 allocator: Allocator,
 
@@ -150,7 +147,7 @@ pub fn toplevel(self: *Self, exec: bool) !void {
             try BPF.map_create(map_kind, key_size, val_size, n_entries)
         else
             57;
-        item.* = .{ .fd = fd, .data = .{ .map = .{ .key = key_size, .val = val_size, .entries = n_entries } } };
+        item.* = .{ .map = .{ .fd = fd, .key = key_size, .val = val_size, .entries = n_entries } };
     } else if (mem.eql(u8, kw, "func")) {
         const name = try require(try self.objname(), "name");
         const license = try require(self.keyword(), "license");
@@ -175,7 +172,7 @@ pub fn toplevel(self: *Self, exec: bool) !void {
         print("\n", .{});
         c.dump();
         const prog = if (exec) try bpfUtil.prog_load_verbose(.kprobe, c.prog(), license) else 83;
-        item.* = .{ .fd = prog, .data = .{ .prog = .{} } };
+        item.* = .{ .prog = .{ .fd = prog } };
     } else {
         print("keyworda {?s}\n", .{kw});
         return error.ParseError;
@@ -320,11 +317,14 @@ pub fn expr(self: *Self, f: *Func) ParseError!u16 {
                 print("undefined map ${s}!\n", .{name});
                 return error.ParseError;
             };
-            if (object.data != .map) {
-                print("object is not a map: ${s}!\n", .{name});
-                return error.ParseError;
-            }
-            return f.ir.load_map_fd(f.curnode, @intCast(u64, object.fd));
+            const fd = switch (object) {
+                .map => |map| map.fd,
+                else => {
+                    print("object is not a map: ${s}!\n", .{name});
+                    return error.ParseError;
+                },
+            };
+            return f.ir.load_map_fd(f.curnode, @intCast(u64, fd));
         }
     }
     return error.ParseError;
