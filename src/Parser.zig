@@ -2,8 +2,18 @@ str: []const u8,
 pos: usize,
 
 fd_objs: std.StringHashMap(union(enum) {
-    map: struct { fd: fd_t, key: usize, val: usize, entries: usize },
+    map: struct {
+        fd: fd_t,
+        key: usize,
+        val: usize,
+        entries: usize,
+    },
     prog: struct { fd: fd_t },
+    elf: struct {
+        fname: []const u8,
+        syms: ElfSymbols,
+        sdts: ArrayList(ElfSymbols.Stapsdt),
+    },
 }),
 allocator: Allocator,
 
@@ -23,7 +33,9 @@ const print = std.debug.print;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const meta = std.meta;
+const ArrayList = std.ArrayList;
 
+const ElfSymbols = @import("./ElfSymbols.zig");
 const FLIR = @import("./FLIR.zig");
 const bpfUtil = @import("./bpfUtil.zig");
 const BPF = std.os.linux.BPF;
@@ -148,6 +160,24 @@ pub fn toplevel(self: *Self, exec: bool) !void {
         else
             57;
         item.* = .{ .map = .{ .fd = fd, .key = key_size, .val = val_size, .entries = n_entries } };
+    } else if (mem.eql(u8, kw, "elf")) {
+        const name = try require(try self.objname(), "name");
+
+        _ = self.nonws() orelse return error.ParseError;
+        const start = self.pos;
+        while (self.pos < self.str.len) : (self.pos += 1) {
+            const next = self.str[self.pos];
+            if (next == '\n') {
+                break;
+            }
+        }
+        if (self.pos == start) return error.ParseError;
+
+        const item = try nonexisting(&self.fd_objs, name, "object $");
+        const fname = self.str[start..self.pos];
+        const elf = try ElfSymbols.init(try std.fs.cwd().openFile(fname, .{}));
+        const sdts = try elf.get_sdts(self.allocator);
+        item.* = .{ .elf = .{ .fname = fname, .syms = elf, .sdts = sdts } };
     } else if (mem.eql(u8, kw, "func")) {
         const name = try require(try self.objname(), "name");
         const license = try require(self.keyword(), "license");
@@ -173,6 +203,23 @@ pub fn toplevel(self: *Self, exec: bool) !void {
         c.dump();
         const prog = if (exec) try bpfUtil.prog_load_verbose(.kprobe, c.prog(), license) else 83;
         item.* = .{ .prog = .{ .fd = prog } };
+    } else if (mem.eql(u8, kw, "attach")) {
+        const elf_name = try require(try self.objname(), "elf name");
+        _ = self.nonws();
+        const probe = try self.identifier();
+        const prog_name = try require(try self.objname(), "probe");
+        const elf = try existing_obj(self.fd_objs, elf_name, .elf);
+        const prog = try existing_obj(self.fd_objs, prog_name, .prog);
+
+        const sdt = try ElfSymbols.test_get_usdt(elf.sdts.items, probe);
+
+        // TODO: share this, like a non-savage
+        const uprobe_type = try bpfUtil.getUprobeType();
+        const probe_fd = try bpfUtil.perf_open_uprobe(uprobe_type, elf.fname, sdt.h.pc);
+
+        // TODO: would be nice if this works so we don't need ioctls..
+        // _ = try bpfUtil.prog_attach_perf(probe_fd, prog.fd);
+        try bpfUtil.perf_attach_bpf(probe_fd, prog.fd);
     } else {
         print("keyworda {?s}\n", .{kw});
         return error.ParseError;
@@ -202,6 +249,20 @@ fn nonexisting(map: anytype, key: []const u8, what: []const u8) ParseError!@Type
         return error.ParseError;
     }
     return item.value_ptr;
+}
+
+fn existing_obj(map: anytype, key: []const u8, comptime what: anytype) ParseError!@TypeOf(@field(map.get(key).?, @tagName(what))) {
+    const object = map.get(key) orelse {
+        print("undefined object ${s}!\n", .{key});
+        return error.ParseError;
+    };
+    switch (object) {
+        what => |obj| return obj,
+        else => {
+            print("object is not a {s}: ${s}!\n", .{ @tagName(what), key });
+            return error.ParseError;
+        },
+    }
 }
 
 fn get_label(f: *Func, name: []const u8, allow_existing: bool) ParseError!u16 {
@@ -313,18 +374,8 @@ pub fn expr(self: *Self, f: *Func) ParseError!u16 {
             return f.ir.alloc(f.curnode);
         } else if (mem.eql(u8, kw, "map")) {
             const name = try require(try self.objname(), "map name");
-            const object = self.fd_objs.get(name) orelse {
-                print("undefined map ${s}!\n", .{name});
-                return error.ParseError;
-            };
-            const fd = switch (object) {
-                .map => |map| map.fd,
-                else => {
-                    print("object is not a map: ${s}!\n", .{name});
-                    return error.ParseError;
-                },
-            };
-            return f.ir.load_map_fd(f.curnode, @intCast(u64, fd));
+            const map = try existing_obj(self.fd_objs, name, .map);
+            return f.ir.load_map_fd(f.curnode, @intCast(u64, map.fd));
         }
     }
     return error.ParseError;

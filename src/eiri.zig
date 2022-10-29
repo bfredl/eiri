@@ -93,21 +93,11 @@ pub fn test_ringbuf(c: *Codegen, allocator: std.mem.Allocator, ringbuf: fd_t) !v
     _ = pos;
 }
 
-pub fn test_get_usdt(sdts: []ElfSymbols.Stapsdt, sdtname: []const u8) !ElfSymbols.Stapsdt {
-    for (sdts) |i| {
-        // print("IYTEM: {} {s} {s} {s}\n", .{ i.h, i.provider, i.name, i.argdesc });
-        if (mem.eql(u8, i.name, sdtname)) {
-            return i;
-        }
-    }
-    return error.ProbeNotFound;
-}
-
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
-    const for_real = std.os.argv.len > 2;
+    const for_real = true; // MEN JAG VILL VETA HUR
 
     const map_count = if (for_real) try BPF.map_create(.array, 4, 8, 1) else 23;
 
@@ -164,24 +154,6 @@ pub fn main() !void {
 
     // try test_ringbuf(&c, allocator, ring_map_fd);
     // c.dump();
-
-    if (std.os.argv.len <= 2) return;
-
-    const fname = mem.span(std.os.argv[2]);
-    const sdtname = mem.span(std.os.argv[3]);
-    const elf = try ElfSymbols.init(try std.fs.cwd().openFile(fname, .{}));
-    defer elf.deinit();
-    const sdts = try elf.get_sdts(allocator);
-    defer sdts.deinit();
-
-    const sdt = try test_get_usdt(sdts.items, sdtname);
-
-    const uprobe_type = try bpfUtil.getUprobeType();
-    const probe_fd = try bpfUtil.perf_open_uprobe(uprobe_type, fname, sdt.h.pc);
-
-    // TODO: would be nice if this works so we don't need ioctls..
-    // _ = try bpfUtil.prog_attach_perf(probe_fd, prog);
-    try bpfUtil.perf_attach_bpf(probe_fd, prog);
 
     var lastval: u64 = @truncate(u64, -1);
     while (true) {

@@ -11,3 +11,7 @@ func $main GPL
 :exit
   ret 0
 end
+
+elf $neovim /home/bfredl/dev/neovim/build/bin/nvim
+
+attach $neovim flushy $main

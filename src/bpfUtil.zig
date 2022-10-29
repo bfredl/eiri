@@ -67,7 +67,7 @@ pub fn perf_attach_bpf(target: fd_t, prog: fd_t) !void {
     }
 }
 
-pub fn perf_open_uprobe(uprobe_type: u32, uprobe_path: [:0]const u8, uprobe_offset: u64) !fd_t {
+pub fn perf_open_uprobe(uprobe_type: u32, uprobe_path: []const u8, uprobe_offset: u64) !fd_t {
     // TODO: .size should be the default (stage2 bug)
     var attr = linux.perf_event_attr{ .size = @sizeOf(linux.perf_event_attr) };
 
@@ -79,7 +79,12 @@ pub fn perf_open_uprobe(uprobe_type: u32, uprobe_path: [:0]const u8, uprobe_offs
     attr.type = @intToEnum(PERF.TYPE, uprobe_type);
     attr.sample_period_or_freq = 1;
     attr.wakeup_events_or_watermark = 1;
-    attr.config1 = @ptrToInt(uprobe_path.ptr);
+    var path_buf: [512]u8 = undefined;
+    if (uprobe_path.len > 511) return error.InvalidProgram;
+    mem.copy(u8, &path_buf, uprobe_path);
+    path_buf[uprobe_path.len] = 0;
+
+    attr.config1 = @ptrToInt(&path_buf);
     attr.config2 = uprobe_offset;
 
     const rc = linux.perf_event_open(&attr, -1, 0, -1, 0);

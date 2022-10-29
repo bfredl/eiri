@@ -152,3 +152,12 @@ pub fn get_sdts(self: *const Self, allocator: Allocator) !ArrayList(Stapsdt) {
     }
     return list;
 }
+pub fn test_get_usdt(sdts: []Stapsdt, sdtname: []const u8) !Stapsdt {
+    for (sdts) |i| {
+        // print("IYTEM: {} {s} {s} {s}\n", .{ i.h, i.provider, i.name, i.argdesc });
+        if (mem.eql(u8, i.name, sdtname)) {
+            return i;
+        }
+    }
+    return error.ProbeNotFound;
+}
