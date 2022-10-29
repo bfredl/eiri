@@ -850,15 +850,6 @@ pub fn trivial_alloc(self: *Self) !void {
                     return error.OOOOOO;
                     // try self.alloc_arg(i);
                 } else if (i.has_res() and i.mckind.unallocated()) {
-                    // const regkind: MCKind = .ipreg;
-                    // const op1 = if (n_op(i.tag, false) > 0) self.iref(i.op1) else null;
-                    // if (op1) |o| {
-                    //     if (o.mckind == regkind and o.vreg == NoRef and o.last_use == ref) {
-                    //         i.mckind = regkind;
-                    //         i.mcidx = o.mcidx;
-                    //         continue;
-                    //     }
-                    // }
                     if (i.last_use == NoRef) {
                         // TODO: always safe??
                     } else if (used < regs.len) {
@@ -880,9 +871,8 @@ pub fn trivial_alloc(self: *Self) !void {
     }
 }
 
-pub fn scan_alloc(self: *Self) !void {
-    // var active_avx: [16]u16 = ([1]u16{0}) ** 16;
-    var active_ipreg: [16]u16 = ([1]u16{0}) ** 16;
+pub fn scan_alloc_fwd(self: *Self) !void {
+    var active_ipreg: [11]u16 = ([1]u16{0}) ** 11;
     // frame pointer r10 is read-only
     active_ipreg[10] = NoRef;
     // TODO: handle auxilary register properly (by explicit load/spill?)
@@ -901,21 +891,17 @@ pub fn scan_alloc(self: *Self) !void {
             var b = &self.b.items[blk];
             for (b.i) |*i, idx| {
                 const ref = toref(blk, uv(idx));
-                if (i.tag == .arg) {
+
+                if (false and i.tag == .arg) {
                     try self.alloc_arg(i);
                     assert(active_ipreg[i.mcidx] <= ref);
                     active_ipreg[i.mcidx] = i.last_use;
-                } else if (i.has_res() and i.mckind.unallocated()) {
+                } else if (i.has_res() and i.mckind.unallocated() and i.last_use != NoRef) {
                     // const is_avx = (i.res_type() == ValType.fpval);
                     // const regkind: MCKind = if (is_avx) .vfreg else .ipreg;
                     // const the_active = if (is_avx) &active_avx else &active_ipreg;
                     const regkind: MCKind = .ipreg;
                     const the_active = &active_ipreg;
-
-                    if (i.tag == .constant and i.spec == 0) {
-                        i.mckind = .fused;
-                        continue;
-                    }
 
                     // TODO: reghint
                     var regid: ?u4 = null;
@@ -1057,8 +1043,8 @@ pub fn test_analysis(self: *Self, comptime check: bool) !void {
     try self.reorder_inst();
     if (check) try self.check_cfg_valid();
     try self.calc_use();
-    try self.trivial_alloc();
-    // try self.scan_alloc();
+    // try self.trivial_alloc();
+    try self.scan_alloc_fwd();
 
     if (check) try self.check_cfg_valid();
     try self.remove_empty();
