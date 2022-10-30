@@ -150,7 +150,7 @@ pub fn toplevel(self: *Self, exec: bool) !void {
         const val_size = try require(self.num(), "val_size");
         const n_entries = try require(self.num(), "n_entries");
         const item = try nonexisting(&self.fd_objs, name, "object $");
-        print("map '{s}' of kind {s}, key={}, val={}\n", .{ name, kind, key_size, val_size });
+        // print("map '{s}' of kind {s}, key={}, val={}\n", .{ name, kind, key_size, val_size });
         const map_kind = meta.stringToEnum(BPF.MapType, kind) orelse {
             print("unknown map kind: '{s}'\n", .{kind});
             return error.ParseError;
@@ -194,13 +194,13 @@ pub fn toplevel(self: *Self, exec: bool) !void {
             if (!try self.stmt(&func)) break;
             try self.lbrk();
         }
-        func.ir.debug_print();
+        // func.ir.debug_print();
         try func.ir.test_analysis(true);
         func.ir.debug_print();
         var c = try Codegen.init(self.allocator);
         _ = try Codegen.codegen(&func.ir, &c);
         print("\n", .{});
-        // c.dump();
+        c.dump();
         const prog = if (exec) try bpfUtil.prog_load_verbose(.kprobe, c.prog(), license) else 83;
         item.* = .{ .prog = .{ .fd = prog } };
     } else if (mem.eql(u8, kw, "attach")) {

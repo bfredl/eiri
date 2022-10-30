@@ -139,9 +139,6 @@ pub fn main() !void {
     // try parser.fd_objs.put("ringbuf", ring_map_fd);
 
     var ringbuf = if (ring_map_fd) |fd| try RingBuf.init(allocator, fd, buffer_size) else null;
-    if (ringbuf) |*rb| {
-        print("MAPPA: {} {?}\n", .{ ring_map_fd.?, rb.peek_event() });
-    }
     var did_read = false;
 
     var lastval: u64 = @truncate(u64, -1);
