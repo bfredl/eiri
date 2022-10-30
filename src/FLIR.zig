@@ -713,7 +713,7 @@ pub fn reorder_nodes(self: *Self) !void {
 
 // assumes already reorder_nodes !
 pub fn reorder_inst(self: *Self) !void {
-    const newlink = try self.a.alloc(u16, self.b.items.len * BLK_SIZE);
+    const newlink = try self.a.alloc(u16, self.n_ins());
     mem.set(u16, newlink, NoRef);
     const newblkpos = try self.a.alloc(u16, self.b.items.len);
     mem.set(u16, newblkpos, NoRef);
@@ -932,7 +932,17 @@ pub fn scan_alloc_fwd(self: *Self) !void {
     }
 }
 
+/// number of numbered instructions (a lot of these might be empty)
+pub fn n_ins(self: *Self) usize {
+    return self.b.items.len * BLK_SIZE;
+}
+
 pub fn debug_print(self: *Self) void {
+    const color_map = self.a.alloc(u8, self.n_ins()) catch @panic("OOM in debug_print");
+    defer self.a.free(color_map);
+    mem.set(u8, color_map, 0);
+    var last_color: u8 = 0;
+
     print("\n", .{});
     for (self.n.items) |*n, i| {
         print("node {} (npred {}, scc {}):", .{ i, n.npred, n.scc });
@@ -944,11 +954,11 @@ pub fn debug_print(self: *Self) void {
 
         print("\n", .{});
 
-        self.print_blk(n.firstblk);
+        const did_ret = self.print_blk(n.firstblk, color_map, &last_color);
 
         if (n.s[1] == 0) {
             if (n.s[0] == 0) {
-                print("  diverge\n", .{});
+                if (!did_ret) print("  diverge\n", .{});
             } else if (n.s[0] != i + 1) {
                 print("  jump {}\n", .{n.s[0]});
             }
@@ -958,8 +968,29 @@ pub fn debug_print(self: *Self) void {
     }
 }
 
-fn print_blk(self: *Self, firstblk: u16) void {
+const RGB = struct { r: u8, g: u8, b: u8 };
+fn color(fg: bool, rgb: RGB) void {
+    const kod = if (fg) "3" else "4";
+    print("\x1b[{s}8;2;{};{};{}m", .{ kod, rgb.r, rgb.g, rgb.b });
+}
+
+fn reset() void {
+    print("\x1b[0m", .{});
+}
+
+fn map_color(idx: u8) void {
+    switch (idx) {
+        0 => reset(),
+        1 => color(true, .{ .r = 0x33, .g = 0x55, .b = 0xFF }),
+        2 => color(true, .{ .r = 0x11, .g = 0xFF, .b = 0x44 }),
+        3 => color(true, .{ .r = 0xFF, .g = 0x00, .b = 0x77 }),
+        else => color(false, .{ .r = 0x44, .g = 0x44, .b = 0x44 }),
+    }
+}
+
+fn print_blk(self: *Self, firstblk: u16, color_map: []u8, last_color: *u8) bool {
     var cur_blk: ?u16 = firstblk;
+    var did_ret = false;
     while (cur_blk) |blk| {
         // print("THE BLOCK: {}\n", .{blk});
         var b = &self.b.items[blk];
@@ -967,8 +998,19 @@ fn print_blk(self: *Self, firstblk: u16) void {
             if (i.tag == .empty) {
                 continue;
             }
+            const theref = toref(blk, uv(idx));
+            print("  ", .{});
+            if (i.mckind != .constant and i.last_use != NoRef) {
+                last_color.* += 1;
+                const my_color = last_color.*;
+                color_map[theref] = my_color;
+                map_color(my_color);
+            }
+            print("%{}", .{toref(blk, uv(idx))});
+            reset();
+
             const chr: u8 = if (i.has_res()) '=' else ' ';
-            print("  %{} {c} {s}", .{ toref(blk, uv(idx)), chr, @tagName(i.tag) });
+            print(" {c} {s}", .{ chr, @tagName(i.tag) });
 
             if (i.tag == .variable) {
                 print(" {s}", .{@tagName(i.spec_type())});
@@ -977,20 +1019,28 @@ fn print_blk(self: *Self, firstblk: u16) void {
             if (i.tag == .iop) {
                 // print(".{s}", .{@tagName(@intToEnum(AluOp, i.spec))});
             } else if (i.tag == .call) {
+                color(true, .{ .r = 0xFF, .g = 0xAA, .b = 0x00 });
                 print(" {s}", .{@tagName(@intToEnum(BPF.Helper, i.spec))});
             } else if (i.tag == .constant) {
                 print(" c[{}]", .{i.op1});
             } else if (i.tag == .putphi) {
                 print(" %{} <-", .{i.op2});
+            } else if (i.tag == .ret) {
+                did_ret = true;
             }
+
             const nop = n_op(i.tag, false);
             if (nop > 0) {
+                map_color(color_map[i.op1]);
                 print(" %{}", .{i.op1});
+                reset();
                 if (nop > 1) {
                     if (i.op2 == NoRef) {
                         print(", %NoRef", .{});
                     } else {
-                        print(", %{}", .{i.op2});
+                        print(", ", .{});
+                        map_color(color_map[i.op2]);
+                        print("%{}", .{i.op2});
                     }
                 }
             }
@@ -999,11 +1049,13 @@ fn print_blk(self: *Self, firstblk: u16) void {
                 // this is a compiler bug ("*" emitted for Noref)
                 //print(" <{}{s}>", .{ i.n_use, @as([]const u8, if (i.vreg != NoRef) "*" else "") });
                 // this is getting ridiculous
+                color(true, .{ .r = 128, .g = 128, .b = 128 });
                 if (i.vreg != NoRef) {
                     print(" |{}=>%{}|", .{ i.vreg, i.last_use });
                 } else {
                     print(" <%{}>", .{i.last_use});
                 }
+                reset();
                 // print(" <{}{s}>", .{ i.last_use, marker });
                 //print(" <{}:{}>", .{ i.n_use, i.vreg });
             }
@@ -1011,9 +1063,11 @@ fn print_blk(self: *Self, firstblk: u16) void {
         }
         cur_blk = b.next();
     }
+    return did_ret;
 }
 
 fn print_mcval(i: Inst) void {
+    color(true, .{ .r = 255, .g = 255, .b = 0 });
     switch (i.mckind) {
         .frameslot => print(" [r10-8*{}]", .{i.mcidx + 1}),
         .ipreg => print(" $r{}", .{i.mcidx}),
@@ -1026,6 +1080,7 @@ fn print_mcval(i: Inst) void {
             }
         },
     }
+    reset();
 }
 
 const test_allocator = std.testing.allocator;

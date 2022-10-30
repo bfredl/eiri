@@ -200,7 +200,7 @@ pub fn toplevel(self: *Self, exec: bool) !void {
         var c = try Codegen.init(self.allocator);
         _ = try Codegen.codegen(&func.ir, &c);
         print("\n", .{});
-        c.dump();
+        // c.dump();
         const prog = if (exec) try bpfUtil.prog_load_verbose(.kprobe, c.prog(), license) else 83;
         item.* = .{ .prog = .{ .fd = prog } };
     } else if (mem.eql(u8, kw, "attach")) {

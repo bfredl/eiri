@@ -129,7 +129,7 @@ pub fn set_target(self: *Self, pos: u32) void {
 }
 
 pub fn put(self: *Self, insn: Insn) !void {
-    dump_ins(insn, self.code.items.len);
+    // dump_ins(insn, self.code.items.len);
     try self.code.append(insn);
 }
 
@@ -323,7 +323,7 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
             continue;
         }
         labels[ni] = cfo.get_target();
-        print("LABEL: {x} {}\n", .{ labels[ni], ni });
+        // print("LABEL: {x} {}\n", .{ labels[ni], ni });
         for (self.preds(uv(ni))) |pred| {
             const pr = &self.n.items[pred];
             const si: u1 = if (pr.s[0] == ni) 0 else 1;
@@ -341,7 +341,7 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
             for (b.i) |*i, ii| {
                 if (i.tag == .empty) continue;
 
-                print("%{}: \n", .{FLIR.toref(blk, uv(ii))});
+                // print("%{}: \n", .{FLIR.toref(blk, uv(ii))});
 
                 var was_fused: bool = false;
                 switch (i.tag) {
