@@ -14,4 +14,4 @@ end
 
 elf $neovim /home/bfredl/dev/neovim/build/bin/nvim
 
-attach $neovim flushy $main
+attach $neovim dupz $main

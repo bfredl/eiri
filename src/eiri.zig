@@ -16,90 +16,11 @@ const print = std.debug.print;
 // const libbpf = @import("bpf");
 // const PerfBuffer = libbpf.PerfBuffer;
 
-pub fn test_stack(allocator: std.mem.Allocator) !void {
-    var c = try Codegen.init(allocator);
-    var ir = try FLIR.init(4, allocator);
-
-    const start = try ir.addNode();
-    // const arg0 = try ir.ctx_arg();
-    const arg0 = try ir.const_int(start, 0xFFF);
-    const callptr = try ir.alloc(start);
-    const const_0 = try ir.const_int(start, 0);
-    const BPF_F_USER_STACK = 0x0100;
-    const flags = try ir.const_int(start, BPF_F_USER_STACK);
-    const size = try ir.const_int(start, 8);
-    var res = try ir.call4(start, .get_stack, arg0, callptr, size, flags);
-    _ = res;
-    try ir.ret(start, const_0);
-    try ir.test_analysis();
-    ir.debug_print();
-    _ = try Codegen.codegen(&ir, &c);
-    print("\n", .{});
-    c.dump();
-}
-
-pub fn test_map(c: *Codegen, allocator: std.mem.Allocator, map: fd_t) !void {
-    var ir = try FLIR.init(4, allocator);
-
-    const start = try ir.addNode();
-    const keyvar = try ir.alloc(start);
-    const const_0 = try ir.const_int(start, 0);
-    try ir.store(start, keyvar, const_0);
-    const m = try ir.load_map_fd(start, @intCast(u32, map));
-    var res = try ir.call2(start, .map_lookup_elem, m, keyvar);
-    const const_1 = try ir.const_int(start, 1);
-    try ir.icmp(start, .jeq, res, const_0);
-    const doit = try ir.addNode();
-    try ir.xadd(doit, res, const_1);
-    const end = try ir.addNode();
-    try ir.ret(end, const_0);
-    ir.n.items[start].s[0] = doit;
-    ir.n.items[start].s[1] = end;
-    ir.n.items[doit].s[0] = end;
-
-    ir.debug_print();
-    try ir.test_analysis();
-    ir.debug_print();
-    const pos = try Codegen.codegen(&ir, c);
-    _ = pos;
-}
-
-pub fn test_ringbuf(c: *Codegen, allocator: std.mem.Allocator, ringbuf: fd_t) !void {
-    var ir = try FLIR.init(4, allocator);
-
-    const start = try ir.addNode();
-    const ctx = try ir.arg();
-    const const_0 = try ir.const_int(start, 0);
-    const const_8 = try ir.const_int(start, 8);
-    const m = try ir.load_map_fd(start, @intCast(u32, ringbuf));
-    var res = try ir.call3(start, .ringbuf_reserve, m, const_8, const_0);
-    // TODO: ad an else which increments "discarded" counter like test_ringbuf.c
-    _ = try ir.icmp(start, .jeq, res, const_0);
-    const doit = try ir.addNode();
-    // const const_57 = try ir.const_int(doit, 57);
-    _ = try ir.store(doit, res, ctx);
-    _ = try ir.call2(doit, .ringbuf_submit, res, const_0);
-
-    const end = try ir.addNode();
-    try ir.ret(end, const_0);
-    ir.n.items[start].s[0] = doit;
-    ir.n.items[start].s[1] = end;
-    ir.n.items[doit].s[0] = end;
-
-    ir.debug_print();
-    try ir.test_analysis();
-    ir.debug_print();
-    const pos = try Codegen.codegen(&ir, c);
-    _ = pos;
-}
-
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
     const for_real = true; // MEN JAG VILL VETA HUR
-
-    const map_count = if (for_real) try BPF.map_create(.array, 4, 8, 1) else 23;
 
     const irfname = mem.span(std.os.argv[1]);
     const fil = try std.fs.cwd().openFile(irfname, .{});
@@ -111,44 +32,29 @@ pub fn main() !void {
         return e;
     };
 
-    const main_obj = parser.fd_objs.get("main") orelse {
-        print("lol no $main\n", .{});
-        std.os.exit(7);
-    };
+    var ringbuf = if (try parser.get_obj("ringbuf", .map)) |map|
+        try RingBuf.init(allocator, map.fd, map.entries)
+    else
+        null;
+    var did_read = false;
 
-    const prog = switch (main_obj) {
-        .prog => |p| p.fd,
-        else => {
-            print("lol $main is not a program\n", .{});
-            std.os.exit(8);
-        },
-    };
-
-    var ring_map_fd: ?i32 = null;
-    var buffer_size: usize = 0;
-    if (parser.fd_objs.get("ringbuf")) |ringbuf_obj| {
-        switch (ringbuf_obj) {
-            .map => |map| {
-                buffer_size = map.entries;
-                ring_map_fd = map.fd;
-            },
-            else => return error.raaaa,
+    var count_map = try parser.get_obj("count", .map);
+    if (count_map) |map| {
+        if (map.key_size != 4 or map.val_size != 8) {
+            return error.whatthef;
         }
     }
 
-    // try parser.fd_objs.put("ringbuf", ring_map_fd);
-
-    var ringbuf = if (ring_map_fd) |fd| try RingBuf.init(allocator, fd, buffer_size) else null;
-    var did_read = false;
-
     var lastval: u64 = @truncate(u64, -1);
     while (true) {
-        const key: u32 = 0;
-        var value: u64 = undefined;
-        try BPF.map_lookup_elem(map_count, mem.asBytes(&key), mem.asBytes(&value));
-        if (value < lastval or value > lastval + 1) {
-            print("VALUE: {}. That's NUMBERWANG!\n", .{value});
-            lastval = value;
+        if (count_map) |map| {
+            const key: u32 = 0;
+            var value: u64 = undefined;
+            try BPF.map_lookup_elem(map.fd, mem.asBytes(&key), mem.asBytes(&value));
+            if (value < lastval or value > lastval + 1) {
+                print("VALUE: {}. That's NUMBERWANG!\n", .{value});
+                lastval = value;
+            }
         }
         std.time.sleep(1e9);
         if (ringbuf) |*rb| {
@@ -163,5 +69,4 @@ pub fn main() !void {
     // doesn't work on kprobe programs (more context needed?)
     // const retval = try bpfUtil.prog_test_run(prog);
     // print("RETURNERA: {}\n", .{retval});
-    defer std.os.close(prog);
 }

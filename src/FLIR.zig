@@ -1067,7 +1067,7 @@ fn print_blk(self: *Self, firstblk: u16, color_map: []u8, last_color: *u8) bool 
 }
 
 fn print_mcval(i: Inst) void {
-    color(true, .{ .r = 255, .g = 255, .b = 0 });
+    color(true, .{ .r = 128, .g = 128, .b = 128 });
     switch (i.mckind) {
         .frameslot => print(" [r10-8*{}]", .{i.mcidx + 1}),
         .ipreg => print(" $r{}", .{i.mcidx}),

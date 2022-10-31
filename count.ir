@@ -1,9 +1,17 @@
+map $count array 4 8 1
+
+elf $neovim /home/bfredl/dev/neovim/build/bin/nvim
+
 func $main MIT
   %key = alloc
   store [%key] 0
   %map = map $count
   %aa = call map_lookup_elem %map %key
-  eq %aa 0
+  eq %aa 0 :exit
+:doit
   xadd [%aa] 1
+:exit
   ret 0
 end
+
+attach $neovim dupz $main
