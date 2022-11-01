@@ -16,14 +16,42 @@ const print = std.debug.print;
 // const libbpf = @import("bpf");
 // const PerfBuffer = libbpf.PerfBuffer;
 
+pub var options = struct {
+    dbg_raw_ir: bool = false,
+    dbg_analysed_ir: bool = false,
+    dbg_disasm: bool = false,
+    dbg_disasm_ir: bool = false,
+}{};
+
+pub fn usage() void {
+    print("USAGE:\n", .{});
+}
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
     const for_real = true; // MEN JAG VILL VETA HUR
 
-    const irfname = mem.span(std.os.argv[1]);
-    const fil = try std.fs.cwd().openFile(irfname, .{});
+    const argv = std.os.argv;
+    if (argv.len < 2) return usage();
+    const firstarg = mem.span(argv[1]);
+    var filearg = firstarg;
+    if (firstarg[0] == '-') {
+        if (argv.len < 3) return usage();
+        filearg = mem.span(argv[2]);
+        for (firstarg[1..]) |a| {
+            switch (a) {
+                'i' => options.dbg_raw_ir = true,
+                'a' => options.dbg_analysed_ir = true,
+                'd' => options.dbg_disasm = true,
+                'D' => options.dbg_disasm_ir = true,
+                else => return usage(),
+            }
+        }
+    }
+
+    const fil = try std.fs.cwd().openFile(filearg, .{});
     const input = try ElfSymbols.bytemap_ro(fil);
     var parser = Parser.init(input, allocator);
     // try parser.fd_objs.put("count", map_count);

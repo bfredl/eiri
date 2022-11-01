@@ -35,6 +35,8 @@ const Allocator = mem.Allocator;
 const meta = std.meta;
 const ArrayList = std.ArrayList;
 
+const options = &@import("root").options;
+
 const ElfSymbols = @import("./ElfSymbols.zig");
 const FLIR = @import("./FLIR.zig");
 const bpfUtil = @import("./bpfUtil.zig");
@@ -194,13 +196,19 @@ pub fn toplevel(self: *Self, exec: bool) !void {
             if (!try self.stmt(&func)) break;
             try self.lbrk();
         }
-        // func.ir.debug_print();
+        if (options.dbg_raw_ir) {
+            func.ir.debug_print();
+        }
         try func.ir.test_analysis(true);
-        func.ir.debug_print();
+        if (options.dbg_analysed_ir) {
+            func.ir.debug_print();
+        }
         var c = try Codegen.init(self.allocator);
         _ = try Codegen.codegen(&func.ir, &c);
-        print("\n", .{});
-        c.dump();
+        if (options.dbg_disasm) {
+            print("\n", .{});
+            c.dump();
+        }
         const prog = if (exec) try bpfUtil.prog_load_verbose(.kprobe, c.prog(), license) else 83;
         item.* = .{ .prog = .{ .fd = prog } };
     } else if (mem.eql(u8, kw, "attach")) {

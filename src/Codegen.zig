@@ -18,6 +18,7 @@ const I = Insn;
 
 code: ArrayList(Insn),
 const Self = @This();
+const options = &@import("root").options;
 
 const EAddr = struct { reg: u4, off: i16 };
 
@@ -136,7 +137,9 @@ pub fn set_target(self: *Self, pos: u32) void {
 }
 
 pub fn put(self: *Self, insn: Insn) !void {
-    // dump_ins(insn, self.code.items.len);
+    if (options.dbg_disasm_ir) {
+        dump_ins(insn, self.code.items.len);
+    }
     try self.code.append(insn);
 }
 
@@ -348,7 +351,9 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
             for (b.i) |*i, ii| {
                 if (i.tag == .empty) continue;
 
-                // print("%{}: \n", .{FLIR.toref(blk, uv(ii))});
+                if (options.dbg_disasm_ir) {
+                    print("%{}: \n", .{FLIR.toref(blk, uv(ii))});
+                }
 
                 var was_fused: bool = false;
                 switch (i.tag) {
