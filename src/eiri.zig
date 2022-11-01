@@ -21,17 +21,30 @@ pub var options = struct {
     dbg_analysed_ir: bool = false,
     dbg_disasm: bool = false,
     dbg_disasm_ir: bool = false,
+    sys: bool = true,
 }{};
 
 pub fn usage() void {
-    print("USAGE:\n", .{});
+    print(
+        \\USAGE: eiri [-tiadD] program.ir
+        \\
+        \\debug flags:
+        \\    t: test run, disable all BPF syscalls
+        \\    i: print input IR
+        \\    a: print analyzed IR
+        \\    d: print BPF disassembly
+        \\    D: print BPF disassembly per IR node
+        \\
+    , .{});
 }
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const mode = @import("builtin").mode;
+    var gpa = if (mode == .Debug)
+        std.heap.GeneralPurposeAllocator(.{}){}
+    else
+        std.heap.ArenaAllocator.init(std.heap.page_allocator);
     const allocator = gpa.allocator();
-
-    const for_real = true; // MEN JAG VILL VETA HUR
 
     const argv = std.os.argv;
     if (argv.len < 2) return usage();
@@ -46,6 +59,7 @@ pub fn main() !void {
                 'a' => options.dbg_analysed_ir = true,
                 'd' => options.dbg_disasm = true,
                 'D' => options.dbg_disasm_ir = true,
+                't' => options.sys = false,
                 else => return usage(),
             }
         }
@@ -55,10 +69,12 @@ pub fn main() !void {
     const input = try ElfSymbols.bytemap_ro(fil);
     var parser = Parser.init(input, allocator);
     // try parser.fd_objs.put("count", map_count);
-    parser.parse(for_real) catch |e| {
-        print("G00f at {} of {}\n", .{ parser.pos, input.len });
+    parser.parse() catch |e| {
+        print("error at byte {} of {}\n", .{ parser.pos, input.len });
         return e;
     };
+
+    if (!options.sys) return;
 
     var ringbuf = if (try parser.get_obj("ringbuf", .map)) |map|
         try RingBuf.init(allocator, map.fd, map.entries)

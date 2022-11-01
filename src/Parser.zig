@@ -133,17 +133,17 @@ fn require(val: anytype, what: []const u8) ParseError!@TypeOf(val.?) {
     };
 }
 
-pub fn parse(self: *Self, exec: bool) !void {
+pub fn parse(self: *Self) !void {
     while (self.nonws()) |next| {
         if (next == '\n') {
             self.pos += 1;
             continue;
         }
-        try self.toplevel(exec);
+        try self.toplevel();
     }
 }
 
-pub fn toplevel(self: *Self, exec: bool) !void {
+pub fn toplevel(self: *Self) !void {
     const kw = self.keyword() orelse return;
     if (mem.eql(u8, kw, "map")) {
         const name = try require(try self.objname(), "name");
@@ -157,7 +157,7 @@ pub fn toplevel(self: *Self, exec: bool) !void {
             print("unknown map kind: '{s}'\n", .{kind});
             return error.ParseError;
         };
-        const fd = if (exec)
+        const fd = if (options.sys)
             try BPF.map_create(map_kind, key_size, val_size, n_entries)
         else
             57;
@@ -211,22 +211,22 @@ pub fn toplevel(self: *Self, exec: bool) !void {
             print("\n", .{});
             c.dump();
         }
-        const prog = if (exec) try bpfUtil.prog_load_verbose(.kprobe, c.prog(), license) else 83;
+        const prog = if (options.sys) try bpfUtil.prog_load_verbose(.kprobe, c.prog(), license) else 83;
         item.* = .{ .prog = .{ .fd = prog } };
     } else if (mem.eql(u8, kw, "attach")) {
         const prog_name = try require(try self.objname(), "program");
         const prog = try self.require_obj(prog_name, .prog);
-        const probe_fd = try self.get_probe(exec);
+        const probe_fd = try self.get_probe();
         // TODO: would be nice if this works so we don't need ioctls..
         // _ = try bpfUtil.prog_attach_perf(probe_fd, prog.fd);
-        try bpfUtil.perf_attach_bpf(probe_fd, prog.fd);
+        if (options.sys) try bpfUtil.perf_attach_bpf(probe_fd, prog.fd);
     } else {
         print("keyworda {?s}\n", .{kw});
         return error.ParseError;
     }
 }
 
-fn get_probe(self: *Self, exec: bool) !fd_t {
+fn get_probe(self: *Self) !fd_t {
     _ = self.nonws();
     const kind = try self.identifier();
     if (mem.eql(u8, kind, "kprobe")) {
@@ -235,7 +235,7 @@ fn get_probe(self: *Self, exec: bool) !fd_t {
         _ = self.nonws();
         const offset = self.num() orelse 0;
 
-        if (!exec) return 55;
+        if (!options.sys) return 55;
         // TODO: share this, like a non-savage
         const kprobe_type = try bpfUtil.getKprobeType();
         return bpfUtil.perf_open_probe_cstr(kprobe_type, func, offset);
@@ -247,7 +247,7 @@ fn get_probe(self: *Self, exec: bool) !fd_t {
         const elf = try self.require_obj(elf_name, .elf);
         const sdt = try ElfSymbols.test_get_usdt(elf.sdts.items, probe);
 
-        if (!exec) return 55;
+        if (!options.sys) return 55;
         // TODO: share this, like a non-savage
         const uprobe_type = try bpfUtil.getUprobeType();
         return bpfUtil.perf_open_probe_cstr(uprobe_type, elf.fname, sdt.h.pc);
