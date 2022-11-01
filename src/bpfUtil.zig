@@ -69,7 +69,7 @@ pub fn perf_attach_bpf(target: fd_t, prog: fd_t) !void {
 
 pub fn perf_open_uprobe(uprobe_type: u32, uprobe_path: []const u8, uprobe_offset: u64) !fd_t {
     // TODO: .size should be the default (stage2 bug)
-    var attr = linux.perf_event_attr{ .size = @sizeOf(linux.perf_event_attr) };
+    var attr = linux.perf_event_attr{};
 
     // TODO: use /sys/devices/system/cpu/online
     // but not needed for uprobe/kprobe???

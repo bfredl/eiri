@@ -204,24 +204,33 @@ pub fn toplevel(self: *Self, exec: bool) !void {
         const prog = if (exec) try bpfUtil.prog_load_verbose(.kprobe, c.prog(), license) else 83;
         item.* = .{ .prog = .{ .fd = prog } };
     } else if (mem.eql(u8, kw, "attach")) {
-        const elf_name = try require(try self.objname(), "elf name");
-        _ = self.nonws();
-        const probe = try self.identifier();
-        const prog_name = try require(try self.objname(), "probe");
-        const elf = try self.require_obj(elf_name, .elf);
+        const prog_name = try require(try self.objname(), "program");
         const prog = try self.require_obj(prog_name, .prog);
-
-        const sdt = try ElfSymbols.test_get_usdt(elf.sdts.items, probe);
-
-        // TODO: share this, like a non-savage
-        const uprobe_type = try bpfUtil.getUprobeType();
-        const probe_fd = try bpfUtil.perf_open_uprobe(uprobe_type, elf.fname, sdt.h.pc);
-
+        const probe_fd = try self.get_probe(exec);
         // TODO: would be nice if this works so we don't need ioctls..
         // _ = try bpfUtil.prog_attach_perf(probe_fd, prog.fd);
         try bpfUtil.perf_attach_bpf(probe_fd, prog.fd);
     } else {
         print("keyworda {?s}\n", .{kw});
+        return error.ParseError;
+    }
+}
+
+fn get_probe(self: *Self, exec: bool) !fd_t {
+    _ = self.nonws();
+    const kind = try self.identifier();
+    if (mem.eql(u8, kind, "usdt")) {
+        const elf_name = try require(try self.objname(), "elf name");
+        _ = self.nonws();
+        const probe = try self.identifier();
+        const elf = try self.require_obj(elf_name, .elf);
+        const sdt = try ElfSymbols.test_get_usdt(elf.sdts.items, probe);
+
+        if (!exec) return 55;
+        // TODO: share this, like a non-savage
+        const uprobe_type = try bpfUtil.getUprobeType();
+        return bpfUtil.perf_open_uprobe(uprobe_type, elf.fname, sdt.h.pc);
+    } else {
         return error.ParseError;
     }
 }

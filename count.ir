@@ -14,4 +14,4 @@ func $main MIT
   ret 0
 end
 
-attach $neovim dupz $main
+attach $main usdt $neovim xfree
