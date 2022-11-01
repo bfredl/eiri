@@ -198,10 +198,12 @@ pub fn toplevel(self: *Self, exec: bool) !void {
         }
         if (options.dbg_raw_ir) {
             func.ir.debug_print();
+            print("\n", .{});
         }
         try func.ir.test_analysis(true);
         if (options.dbg_analysed_ir) {
             func.ir.debug_print();
+            print("\n", .{});
         }
         var c = try Codegen.init(self.allocator);
         _ = try Codegen.codegen(&func.ir, &c);

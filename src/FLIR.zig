@@ -986,73 +986,77 @@ fn print_blk(self: *Self, firstblk: u16, color_map: []u8, last_color: *u8) bool 
         for (b.i) |i, idx| {
             if (i.tag == .empty) {
                 continue;
-            }
-            const theref = toref(blk, uv(idx));
-            print("  ", .{});
-            if (i.mckind != .constant and i.last_use != NoRef) {
-                last_color.* += 1;
-                const my_color = last_color.*;
-                color_map[theref] = my_color;
-                map_color(my_color);
-            }
-            print("%{}", .{toref(blk, uv(idx))});
-            reset();
-
-            const chr: u8 = if (i.has_res()) '=' else ' ';
-            print(" {c} {s}", .{ chr, @tagName(i.tag) });
-
-            if (i.tag == .variable) {
-                print(" {s}", .{@tagName(i.spec_type())});
-            }
-
-            if (i.tag == .iop) {
-                // print(".{s}", .{@tagName(@intToEnum(AluOp, i.spec))});
-            } else if (i.tag == .call) {
-                color(true, .{ .r = 0xFF, .g = 0xAA, .b = 0x00 });
-                print(" {s}", .{@tagName(@intToEnum(BPF.Helper, i.spec))});
-            } else if (i.tag == .constant) {
-                print(" c[{}]", .{i.op1});
-            } else if (i.tag == .putphi) {
-                print(" %{} <-", .{i.op2});
             } else if (i.tag == .ret) {
                 did_ret = true;
             }
-
-            const nop = n_op(i.tag, false);
-            if (nop > 0) {
-                map_color(color_map[i.op1]);
-                print(" %{}", .{i.op1});
-                reset();
-                if (nop > 1) {
-                    if (i.op2 == NoRef) {
-                        print(", %NoRef", .{});
-                    } else {
-                        print(", ", .{});
-                        map_color(color_map[i.op2]);
-                        print("%{}", .{i.op2});
-                    }
-                }
-            }
-            print_mcval(i);
-            if (i.last_use != NoRef) {
-                // this is a compiler bug ("*" emitted for Noref)
-                //print(" <{}{s}>", .{ i.n_use, @as([]const u8, if (i.vreg != NoRef) "*" else "") });
-                // this is getting ridiculous
-                color(true, .{ .r = 128, .g = 128, .b = 128 });
-                if (i.vreg != NoRef) {
-                    print(" |{}=>%{}|", .{ i.vreg, i.last_use });
-                } else {
-                    print(" <%{}>", .{i.last_use});
-                }
-                reset();
-                // print(" <{}{s}>", .{ i.last_use, marker });
-                //print(" <{}:{}>", .{ i.n_use, i.vreg });
-            }
+            const ref = toref(blk, uv(idx));
+            print_insn(ref, i, color_map, last_color);
             print("\n", .{});
         }
         cur_blk = b.next();
     }
     return did_ret;
+}
+
+pub fn print_insn(ref: u16, i: Inst, color_map: []u8, last_color: *u8) void {
+    print("  ", .{});
+    if (i.mckind != .constant and i.last_use != NoRef) {
+        last_color.* += 1;
+        const my_color = last_color.*;
+        color_map[ref] = my_color;
+        map_color(my_color);
+    }
+    print("%{}", .{ref});
+    reset();
+
+    const chr: u8 = if (i.has_res()) '=' else ' ';
+    print(" {c} {s}", .{ chr, @tagName(i.tag) });
+
+    if (i.tag == .variable) {
+        print(" {s}", .{@tagName(i.spec_type())});
+    }
+
+    if (i.tag == .iop) {
+        // print(".{s}", .{@tagName(@intToEnum(AluOp, i.spec))});
+    } else if (i.tag == .call) {
+        color(true, .{ .r = 0xFF, .g = 0xAA, .b = 0x00 });
+        print(" {s}", .{@tagName(@intToEnum(BPF.Helper, i.spec))});
+    } else if (i.tag == .constant) {
+        print(" c[{}]", .{i.op1});
+    } else if (i.tag == .putphi) {
+        print(" %{} <-", .{i.op2});
+    }
+
+    const nop = n_op(i.tag, false);
+    if (nop > 0) {
+        map_color(color_map[i.op1]);
+        print(" %{}", .{i.op1});
+        reset();
+        if (nop > 1) {
+            if (i.op2 == NoRef) {
+                print(", %NoRef", .{});
+            } else {
+                print(", ", .{});
+                map_color(color_map[i.op2]);
+                print("%{}", .{i.op2});
+            }
+        }
+    }
+    print_mcval(i);
+    if (i.last_use != NoRef) {
+        // this is a compiler bug ("*" emitted for Noref)
+        //print(" <{}{s}>", .{ i.n_use, @as([]const u8, if (i.vreg != NoRef) "*" else "") });
+        // this is getting ridiculous
+        color(true, .{ .r = 128, .g = 128, .b = 128 });
+        if (i.vreg != NoRef) {
+            print(" |{}=>%{}|", .{ i.vreg, i.last_use });
+        } else {
+            print(" <%{}>", .{i.last_use});
+        }
+        reset();
+        // print(" <{}{s}>", .{ i.last_use, marker });
+        //print(" <{}:{}>", .{ i.n_use, i.vreg });
+    }
 }
 
 fn print_mcval(i: Inst) void {

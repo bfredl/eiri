@@ -138,6 +138,7 @@ pub fn set_target(self: *Self, pos: u32) void {
 
 pub fn put(self: *Self, insn: Insn) !void {
     if (options.dbg_disasm_ir) {
+        print("    ", .{});
         dump_ins(insn, self.code.items.len);
     }
     try self.code.append(insn);
@@ -317,6 +318,12 @@ pub fn makejmp(self: *FLIR, cfo: *Self, op: ?Insn.JmpOp, ni: u16, si: u1, labels
 pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
     var labels = try self.a.alloc(u32, self.dfs.items.len);
     var targets = try self.a.alloc([2]u32, self.dfs.items.len);
+
+    const color_map = self.a.alloc(u8, self.n_ins()) catch @panic("OOM in debug_print");
+    defer self.a.free(color_map);
+    mem.set(u8, color_map, 0);
+    var last_color: u8 = 0;
+
     defer self.a.free(labels);
     defer self.a.free(targets);
     mem.set(u32, labels, 0);
@@ -352,7 +359,8 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
                 if (i.tag == .empty) continue;
 
                 if (options.dbg_disasm_ir) {
-                    print("%{}: \n", .{FLIR.toref(blk, uv(ii))});
+                    FLIR.print_insn(FLIR.toref(blk, uv(ii)), i.*, color_map, &last_color);
+                    print("\n", .{});
                 }
 
                 var was_fused: bool = false;
