@@ -1,3 +1,0 @@
-[submodule "libs/bpf"]
-	path = libs/bpf
-	url = git@github.com:mattnite/bpf.git
