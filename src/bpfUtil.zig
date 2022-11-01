@@ -67,8 +67,7 @@ pub fn perf_attach_bpf(target: fd_t, prog: fd_t) !void {
     }
 }
 
-pub fn perf_open_uprobe(uprobe_type: u32, uprobe_path: []const u8, uprobe_offset: u64) !fd_t {
-    // TODO: .size should be the default (stage2 bug)
+pub fn perf_open_probe(probe_type: u32, config1: u64, config2: u64) !fd_t {
     var attr = linux.perf_event_attr{};
 
     // TODO: use /sys/devices/system/cpu/online
@@ -76,16 +75,12 @@ pub fn perf_open_uprobe(uprobe_type: u32, uprobe_path: []const u8, uprobe_offset
 
     // the type value is dynamic and might be outside the defined values of
     // PERF.TYPE. praxis or zig std correctness issue
-    attr.type = @intToEnum(PERF.TYPE, uprobe_type);
+    attr.type = @intToEnum(PERF.TYPE, probe_type);
     attr.sample_period_or_freq = 1;
     attr.wakeup_events_or_watermark = 1;
-    var path_buf: [512]u8 = undefined;
-    if (uprobe_path.len > 511) return error.InvalidProgram;
-    mem.copy(u8, &path_buf, uprobe_path);
-    path_buf[uprobe_path.len] = 0;
 
-    attr.config1 = @ptrToInt(&path_buf);
-    attr.config2 = uprobe_offset;
+    attr.config1 = config1;
+    attr.config2 = config2;
 
     const rc = linux.perf_event_open(&attr, -1, 0, -1, 0);
     return switch (errno(rc)) {
@@ -98,14 +93,32 @@ pub fn perf_open_uprobe(uprobe_type: u32, uprobe_path: []const u8, uprobe_offset
     };
 }
 
-pub fn getUprobeType() !u32 {
-    const fil = try std.fs.openFileAbsolute("/sys/bus/event_source/devices/uprobe/type", .{});
+// makes a null-terminated copy of config1, maximum size: 511 bytes (+ added nul byte)
+pub fn perf_open_probe_cstr(uprobe_type: u32, config1: []const u8, config2: u64) !fd_t {
+    var config1_buf: [512]u8 = undefined;
+    if (config1.len > 511) return error.InvalidProgram;
+    mem.copy(u8, &config1_buf, config1);
+    config1_buf[config1.len] = 0;
+
+    return perf_open_probe(uprobe_type, @ptrToInt(&config1_buf), config2);
+}
+
+pub fn getProbeTypeFromPath(path: []const u8) !u32 {
+    const fil = try std.fs.openFileAbsolute(path, .{});
     defer fil.close();
 
     const reader = fil.reader();
     var buf = [1]u8{0} ** 32;
     const line = (try reader.readUntilDelimiterOrEof(&buf, '\n')) orelse return error.FEEL;
     return std.fmt.parseInt(u32, line, 10);
+}
+
+pub fn getKprobeType() !u32 {
+    return getProbeTypeFromPath("/sys/bus/event_source/devices/kprobe/type");
+}
+
+pub fn getUprobeType() !u32 {
+    return getProbeTypeFromPath("/sys/bus/event_source/devices/uprobe/type");
 }
 
 pub const pt_regs_amd64 = enum(u8) {

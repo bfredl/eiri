@@ -219,6 +219,17 @@ pub fn toplevel(self: *Self, exec: bool) !void {
 fn get_probe(self: *Self, exec: bool) !fd_t {
     _ = self.nonws();
     const kind = try self.identifier();
+    if (mem.eql(u8, kind, "kprobe")) {
+        _ = self.nonws();
+        const func = try self.identifier();
+        _ = self.nonws();
+        const offset = self.num() orelse 0;
+
+        if (!exec) return 55;
+        // TODO: share this, like a non-savage
+        const kprobe_type = try bpfUtil.getKprobeType();
+        return bpfUtil.perf_open_probe_cstr(kprobe_type, func, offset);
+    }
     if (mem.eql(u8, kind, "usdt")) {
         const elf_name = try require(try self.objname(), "elf name");
         _ = self.nonws();
@@ -229,7 +240,7 @@ fn get_probe(self: *Self, exec: bool) !fd_t {
         if (!exec) return 55;
         // TODO: share this, like a non-savage
         const uprobe_type = try bpfUtil.getUprobeType();
-        return bpfUtil.perf_open_uprobe(uprobe_type, elf.fname, sdt.h.pc);
+        return bpfUtil.perf_open_probe_cstr(uprobe_type, elf.fname, sdt.h.pc);
     } else {
         return error.ParseError;
     }
