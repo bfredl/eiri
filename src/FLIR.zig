@@ -523,17 +523,6 @@ pub fn preds(self: *Self, i: u16) []u16 {
     return self.refs.items[v.predref..][0..v.npred];
 }
 
-pub fn p(self: *Self, s1: u16, s2: u16) void {
-    var z1: u16 = s1;
-    var z2: u16 = s2;
-    if (true and s2 != 0) {
-        z1 = s2;
-        z2 = s1;
-    }
-    // TODO: this is INVALID
-    self.n.appendAssumeCapacity(.{ .s = .{ z1, z2 }, .firstblk = NoRef, .lastblk = NoRef });
-}
-
 fn predlink(self: *Self, i: u16, si: u1, split: bool) !void {
     var n = self.n.items;
     const s = n[i].s[si];

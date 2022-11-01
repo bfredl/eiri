@@ -68,6 +68,11 @@ pub fn dump_ins(i: I, ni: usize) void {
             if (i.code & BPF.X == BPF.X) print("r{}", .{i.src}) else print("{}", .{i.imm});
         },
         BPF.ST, BPF.LD => {
+            if (i.code == 0 and i.imm == 0) {
+                // TODO: not like this!
+                print("\n", .{});
+                return;
+            }
             _ = siz;
             print("{s} ", .{grp});
             if (mspec == BPF.MEM) {
@@ -81,11 +86,12 @@ pub fn dump_ins(i: I, ni: usize) void {
         },
         BPF.STX => {
             _ = siz;
-            print("{s} ", .{grp});
             if (mspec == BPF.MEM) {
-                print("[r{}{:02}], ", .{ i.dst, i.off });
+                print("STX [r{}{:02}], ", .{ i.dst, i.off });
+            } else if (i.code == 0xdb) {
+                print("XADD [r{}{:02}], ", .{ i.dst, i.off });
             } else {
-                print("?? ", .{});
+                print("STX.?? ", .{});
             }
             print("r{}", .{i.src});
         },
@@ -112,6 +118,7 @@ pub fn dump_ins(i: I, ni: usize) void {
             } else {
                 print("{s} r{}, ", .{ jmpspec, i.dst });
                 if (i.code & BPF.X == BPF.X) print("r{}", .{i.src}) else print("{}", .{i.imm});
+                print(" => {}", .{@intCast(i32, ni) + i.off + 1});
             }
         },
         else => print("{s}.???", .{grp}),
