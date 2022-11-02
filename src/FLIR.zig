@@ -29,6 +29,8 @@ nvar: u16 = 0,
 // variables 2.0: virtual registero
 nvreg: u16 = 0,
 
+first_call: u16 = NoRef,
+
 // 8-byte slots in stack frame
 nslots: u8 = 0,
 
@@ -88,7 +90,9 @@ pub const Inst = struct {
     mcidx: u8 = undefined,
     // n_use: u16 = 0,
     last_use: u16 = NoRef,
-    vreg: u16 = NoRef,
+    // for .call : next call instruction
+    // for others: UNUSED
+    chain: u16 = NoRef,
 
     fn free(self: @This()) bool {
         return self.tag == .empty;
@@ -776,10 +780,26 @@ pub fn reorder_inst(self: *Self) !void {
 }
 
 // ni = node id of user
-pub fn adduse(self: *Self, ni: u16, user: u16, used: u16) void {
+pub fn adduse(self: *Self, ni: u16, iuser: u16, used: u16, user: Inst, op: u4) void {
     const ref = self.biref(used).?;
     //ref.i.n_use += 1;
-    ref.i.last_use = user;
+    ref.i.last_use = iuser;
+    const argno: ?u4 = switch (user.tag) {
+        // TODO: will get wrecked with 5+ args..
+        .call => op,
+        .callarg => 2 + op,
+        .ret => 0,
+        else => null,
+    };
+    if (ref.i.mckind.unallocated()) {
+        if (argno) |no| {
+            ref.i.mckind = .unallocated_ipreghint;
+            ref.i.mcidx = no;
+        } else {
+            ref.i.mckind = .unallocated_raw;
+        }
+    }
+
     // it leaks to another block: could do something here
     if (ref.n != ni) {
         // passs
@@ -789,17 +809,29 @@ pub fn adduse(self: *Self, ni: u16, user: u16, used: u16) void {
 // TODO: not idempotent! does not reset n_use=0 first.
 // NB: requires reorder_nodes() [scc] and reorder_inst()
 pub fn calc_use(self: *Self) !void {
+    var last_call: u16 = NoRef;
+
     for (self.n.items) |*n, ni| {
         var cur_blk: ?u16 = n.firstblk;
         while (cur_blk) |blk| {
             var b = &self.b.items[blk];
             for (b.i) |*i, idx| {
                 const ref = toref(blk, uv(idx));
+                if (i.tag == .call) {
+                    if (last_call == NoRef) {
+                        self.first_call = ref;
+                    } else {
+                        self.iref(last_call).?.chain = ref;
+                    }
+                    last_call = ref;
+                }
+
                 const nops = n_op_dyn(i, false);
                 if (nops > 0) {
-                    self.adduse(uv(ni), ref, i.op1);
+                    const useref = if (i.tag == .callarg) last_call else ref;
+                    self.adduse(uv(ni), useref, i.op1, i.*, 1);
                     if (nops > 1) {
-                        self.adduse(uv(ni), ref, i.op2);
+                        self.adduse(uv(ni), useref, i.op2, i.*, 2);
                     }
                 }
             }
@@ -867,12 +899,7 @@ pub fn scan_alloc_fwd(self: *Self) !void {
     // TODO: handle auxilary register properly (by explicit load/spill?)
     active_ipreg[0] = NoRef;
 
-    // TODO: allocate caller-saved registers
-    active_ipreg[1] = NoRef;
-    active_ipreg[2] = NoRef;
-    active_ipreg[3] = NoRef;
-    active_ipreg[4] = NoRef;
-    active_ipreg[5] = NoRef;
+    var next_call = self.first_call;
 
     for (self.n.items) |*n| {
         var cur_blk: ?u16 = n.firstblk;
@@ -880,6 +907,10 @@ pub fn scan_alloc_fwd(self: *Self) !void {
             var b = &self.b.items[blk];
             for (b.i) |*i, idx| {
                 const ref = toref(blk, uv(idx));
+                if (ref == next_call) {
+                    assert(i.tag == .call);
+                    next_call = i.chain;
+                }
 
                 if (false and i.tag == .arg) {
                     try self.alloc_arg(i);
@@ -895,6 +926,13 @@ pub fn scan_alloc_fwd(self: *Self) !void {
                     // TODO: reghint
                     var regid: ?u4 = null;
                     for (the_active) |l, ri| {
+                        if (ri <= 5) {
+                            // TODO: be more liberal with scratch register. might be easier in reverse mode
+                            // (values which MUST go into args registers r1-r5 get dibs, rest can use them if free)
+                            if (!(i.last_use == next_call and i.mckind == .unallocated_ipreghint and i.mcidx == ri)) {
+                                continue;
+                            }
+                        }
                         if (l <= ref) {
                             regid = @intCast(u4, ri);
                             break;
@@ -1048,8 +1086,8 @@ pub fn print_insn(ref: u16, i: Inst, color_map: []u8, last_color: *u8) void {
         //print(" <{}{s}>", .{ i.n_use, @as([]const u8, if (i.vreg != NoRef) "*" else "") });
         // this is getting ridiculous
         color(true, .{ .r = 128, .g = 128, .b = 128 });
-        if (i.vreg != NoRef) {
-            print(" |{}=>%{}|", .{ i.vreg, i.last_use });
+        if (false) { // i.vreg != NoRef
+            // print(" |{}=>%{}|", .{ i.vreg, i.last_use });
         } else {
             print(" <%{}>", .{i.last_use});
         }

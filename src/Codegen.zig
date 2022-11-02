@@ -454,7 +454,8 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
                         const src = self.iref(i.op2).?.*;
                         const dreg = if (dest.mckind == .ipreg) @intToEnum(IPReg, dest.mcidx) else .r0;
                         try regmovmc(cfo, dreg, dest);
-                        const sreg = if (src.mckind == .ipreg) @intToEnum(IPReg, src.mcidx) else .r1;
+                        const sreg = if (src.mckind == .ipreg) @intToEnum(IPReg, src.mcidx) else .r0;
+                        if (dreg == sreg) return error.@"TODO: regalloc should explicitly unspill";
                         try regmovmc(cfo, sreg, src);
                         try cfo.put(I.xadd(dreg, sreg));
                     },
