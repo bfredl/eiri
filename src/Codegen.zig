@@ -98,6 +98,15 @@ pub fn dump_ins(i: I, ni: usize) void {
             }
             print("r{}", .{i.src});
         },
+        BPF.LDX => {
+            _ = siz;
+            print("LDX r{}, ", .{i.dst});
+            if (mspec == BPF.MEM) {
+                print("[r{}{:02}]", .{ i.src, i.off });
+            } else {
+                print("???", .{});
+            }
+        },
         BPF.JMP => {
             const jmpspec = switch (h) {
                 BPF.JA => "JA",
