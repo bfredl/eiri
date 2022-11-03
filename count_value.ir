@@ -1,8 +1,10 @@
 map $count array 4 8 1
 
 func $main MIT
+  %ctx = arg
+  %rax = ctxreg %ctx rax
   %value = map_value $count
-  xadd [%value] 1
+  xadd [%value] %rax
   ret 0
 end
 

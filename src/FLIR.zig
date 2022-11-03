@@ -472,6 +472,10 @@ pub fn store2(self: *Self, node: u16, base: u16, idx: u16, val: u16) !u16 {
     return self.addInst(node, .{ .tag = .store, .op1 = addr, .op2 = val, .spec = self.iref(val).?.spec });
 }
 
+pub fn load(self: *Self, node: u16, base: u16, off: u16) !u16 {
+    return try self.addInst(node, .{ .tag = .load, .op1 = base, .op2 = off });
+}
+
 pub fn store(self: *Self, node: u16, addr: u16, val: u16) !void {
     _ = try self.addInst(node, .{ .tag = .store, .op1 = addr, .op2 = val, .spec = self.iref(val).?.spec });
 }

@@ -294,6 +294,10 @@ fn addrmovmc(self: *Self, dst: EAddr, src: Inst) !void {
     }
 }
 
+fn regmovaddr(self: *Self, dst: IPReg, src: EAddr) !void {
+    try self.put(I.ldx(.double_word, dst, @intToEnum(IPReg, src.reg), src.off));
+}
+
 // TODO: obviously better handling of scratch register
 fn movmcs(cfo: *Self, dst: Inst, src: Inst, scratch: IPReg) !void {
     if (dst.mckind == src.mckind and dst.mcidx == src.mcidx) {
@@ -397,17 +401,14 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
                     },
                     .load => {
                         // TODO: spill spall supllit?
-                        const base = self.iref(i.op1).?.ipreg() orelse unreachable;
-                        const idx = self.iref(i.op2).?.ipreg() orelse unreachable;
-                        _ = base;
-                        _ = idx;
-                        // const eaddr = unreachable; // Self.qi(base, idx);
-                        if (i.spec_type() == .intptr) {
-                            const dst = i.ipreg() orelse .r0;
-                            // try cfo.movrm(dst, eaddr);
-                            try mcmovreg(cfo, i.*, dst); // elided if dst is register
-                            unreachable;
-                        }
+                        const addr = self.iref(i.op1).?;
+                        const offval = self.iref(i.op2).?;
+                        if (offval.tag != .constant) return error.@"TODO: load[reg1+reg2]";
+                        const off = @intCast(i16, offval.op1);
+                        const eaddr: EAddr = if (addr.tag == .alloc) .{ .reg = 10, .off = slotoff(addr.op1) + off } else if (addr.mckind == .ipreg) .{ .reg = @intCast(u4, addr.mcidx), .off = off } else unreachable;
+                        const dst = i.ipreg() orelse .r0;
+                        try cfo.regmovaddr(dst, eaddr);
+                        try mcmovreg(cfo, i.*, dst); // elided if dst is register
                     },
                     .lea => {
                         // TODO: spill spall supllit?

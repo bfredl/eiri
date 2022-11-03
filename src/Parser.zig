@@ -414,6 +414,13 @@ pub fn expr(self: *Self, f: *Func) ParseError!u16 {
             const name = try require(try self.objname(), "map name");
             const map = try self.require_obj(name, .map);
             return f.ir.load_map(f.curnode, @intCast(u64, map.fd), true);
+        } else if (mem.eql(u8, kw, "ctxreg")) {
+            const ctx = try require(try self.call_arg(f), "context");
+            _ = self.nonws();
+            const reg = try self.identifier();
+            const regidx = meta.stringToEnum(bpfUtil.pt_regs_amd64, reg) orelse return error.ParseError;
+            const const_off = try f.ir.const_int(f.curnode, 8 * @enumToInt(regidx));
+            return f.ir.load(f.curnode, ctx, const_off);
         }
     }
     return error.ParseError;
