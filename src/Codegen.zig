@@ -80,6 +80,8 @@ pub fn dump_ins(i: I, ni: usize) void {
                 print("[r{}{:02}], ", .{ i.dst, i.off });
             } else if (mspec == BPF.IMM and i.src == BPF.PSEUDO_MAP_FD) {
                 print("r{}, map_fd ", .{i.dst});
+            } else if (mspec == BPF.IMM and i.src == BPF.PSEUDO_MAP_VALUE) {
+                print("r{}, map_value ", .{i.dst});
             } else {
                 print("?? ", .{});
             }
@@ -148,8 +150,15 @@ pub fn slotoff(slotid: anytype) i16 {
     return -8 * (1 + @intCast(i16, slotid));
 }
 
-pub fn ld_map_fd(self: *Self, reg: IPReg, map_fd: fd_t) !void {
-    try self.put(I.ld_map_fd1(reg, map_fd));
+pub fn ld_map_fd(self: *Self, reg: IPReg, map_fd: fd_t, spec: u8) !void {
+    var insn = I.ld_map_fd1(reg, map_fd);
+    if (spec == 1) { // BPF_PSEUDO_MAP_VALUE
+        insn.src = BPF.PSEUDO_MAP_VALUE;
+    } else {
+        std.debug.assert(spec == 0);
+    }
+    try self.put(insn);
+    // TODO: PSEUDO_MAP_VALUE allows us to code an offset into the second instruction
     try self.put(I.ld_map_fd2(map_fd));
 }
 
@@ -428,9 +437,9 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
                         const val = self.iref(i.op2).?;
                         try addrmovmc(cfo, eaddr, val.*);
                     },
-                    .load_map_fd => {
+                    .load_map => {
                         const reg = if (i.mckind == .ipreg) @intToEnum(IPReg, i.mcidx) else .r0;
-                        try ld_map_fd(cfo, reg, i.op1);
+                        try ld_map_fd(cfo, reg, i.op1, i.spec);
                         try mcmovreg(cfo, i.*, reg);
                     },
                     .alloc => {},

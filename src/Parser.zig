@@ -409,7 +409,11 @@ pub fn expr(self: *Self, f: *Func) ParseError!u16 {
         } else if (mem.eql(u8, kw, "map")) {
             const name = try require(try self.objname(), "map name");
             const map = try self.require_obj(name, .map);
-            return f.ir.load_map_fd(f.curnode, @intCast(u64, map.fd));
+            return f.ir.load_map(f.curnode, @intCast(u64, map.fd), false);
+        } else if (mem.eql(u8, kw, "map_value")) {
+            const name = try require(try self.objname(), "map name");
+            const map = try self.require_obj(name, .map);
+            return f.ir.load_map(f.curnode, @intCast(u64, map.fd), true);
         }
     }
     return error.ParseError;

@@ -131,7 +131,7 @@ pub const Inst = struct {
             .icmp => null,
             .ret => null,
             // .vmath => null,
-            .load_map_fd => .intptr,
+            .load_map => .intptr,
             .call => .intptr,
             .callarg => null,
             .xadd => null,
@@ -171,7 +171,7 @@ pub const Tag = enum(u8) {
     icmp, // must be LAST in a node to indicate a cond jump
     // vmath,
     ret,
-    load_map_fd,
+    load_map,
     call,
     callarg, // XXX: supplying args in %(i+1) for inst with result %i could be messy??
     xadd, // TODO: atomic group
@@ -240,7 +240,7 @@ pub fn n_op(tag: Tag, rw: bool) u2 {
         .call => 2,
         .callarg => 2,
         .alloc => 0,
-        .load_map_fd => 0,
+        .load_map => 0,
         .xadd => 2,
     };
 }
@@ -423,11 +423,11 @@ pub fn alloc(self: *Self, node: u16) !u16 {
     return self.addInst(node, .{ .tag = .alloc, .op1 = slot, .op2 = 0, .spec = Inst.TODO_INT_SPEC, .mckind = .fused });
 }
 
-pub fn load_map_fd(self: *Self, node: u16, map_fd: u64) !u16 {
+pub fn load_map(self: *Self, node: u16, map_fd: u64, value: bool) !u16 {
     // TODO: store the actual u64 map_fd, same place we store actual u64 constants?
     assert(map_fd < 0x10000);
     const low_fd: u16 = @truncate(u16, map_fd);
-    return self.addInst(node, .{ .tag = .load_map_fd, .op1 = low_fd, .op2 = 0 });
+    return self.addInst(node, .{ .tag = .load_map, .op1 = low_fd, .op2 = 0, .spec = if (value) 1 else 0 });
 }
 
 pub fn binop(self: *Self, node: u16, tag: Tag, op1: u16, op2: u16) !u16 {

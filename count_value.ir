@@ -1,0 +1,9 @@
+map $count array 4 8 1
+
+func $main MIT
+  %value = map_value $count
+  xadd [%value] 1
+  ret 0
+end
+
+attach $main kprobe __x64_sys_write
