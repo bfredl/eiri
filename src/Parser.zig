@@ -38,6 +38,7 @@ const ArrayList = std.ArrayList;
 const options = &@import("root").options;
 
 const ElfSymbols = @import("./ElfSymbols.zig");
+const BTFInfo = @import("./BTFInfo.zig");
 const FLIR = @import("./FLIR.zig");
 const bpfUtil = @import("./bpfUtil.zig");
 const BPF = std.os.linux.BPF;
@@ -133,6 +134,18 @@ fn require(val: anytype, what: []const u8) ParseError!@TypeOf(val.?) {
     };
 }
 
+fn to_eol(self: *Self) ![]const u8 {
+    const start = self.pos;
+    while (self.pos < self.str.len) : (self.pos += 1) {
+        const next = self.str[self.pos];
+        if (next == '\n') {
+            break;
+        }
+    }
+    if (self.pos == start) return error.ParseError;
+    return self.str[start..self.pos];
+}
+
 pub fn parse(self: *Self) !void {
     while (self.nonws()) |next| {
         if (next == '\n') {
@@ -165,21 +178,18 @@ pub fn toplevel(self: *Self) !void {
     } else if (mem.eql(u8, kw, "elf")) {
         const name = try require(try self.objname(), "name");
 
-        _ = self.nonws() orelse return error.ParseError;
-        const start = self.pos;
-        while (self.pos < self.str.len) : (self.pos += 1) {
-            const next = self.str[self.pos];
-            if (next == '\n') {
-                break;
-            }
-        }
-        if (self.pos == start) return error.ParseError;
+        _ = self.nonws();
+        const fname = try self.to_eol();
 
         const item = try nonexisting(&self.fd_objs, name, "object $");
-        const fname = self.str[start..self.pos];
         const elf = try ElfSymbols.init(try std.fs.cwd().openFile(fname, .{}));
         const sdts = try elf.get_sdts(self.allocator);
         item.* = .{ .elf = .{ .fname = fname, .syms = elf, .sdts = sdts } };
+    } else if (mem.eql(u8, kw, "btf")) {
+        _ = self.nonws();
+        const fname = try self.to_eol();
+        const btf = try BTFInfo.init(try std.fs.cwd().openFile(fname, .{}));
+        _ = btf;
     } else if (mem.eql(u8, kw, "func")) {
         const name = try require(try self.objname(), "name");
         const license = try require(self.keyword(), "license");

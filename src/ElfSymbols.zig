@@ -7,7 +7,7 @@ const mem = std.mem;
 const fs = std.fs;
 const os = std.os;
 const io = std.io;
-const p = std.debug.print;
+const print = std.debug.print;
 const ArrayList = std.ArrayList;
 
 // code derived on elf handling routines in zig stdlib,
@@ -39,8 +39,6 @@ pub fn bytemap_ro(file: File) ![]align(mem.page_size) const u8 {
     const stat = try os.fstat(file.handle);
     const size = std.math.cast(usize, stat.size) orelse return error.FileTooBig;
 
-    // This one is to read the ELF info. We do more mmapping later
-    // corresponding to the actual LOAD sections.
     return (try os.mmap(
         null,
         mem.alignForward(size, mem.page_size),
@@ -112,7 +110,7 @@ pub fn init(elf_file: File) !Self {
             // TODO: when is this?
             if (false and sym.st_name > 1 and sym.st_name < self.strtab.?.len) {
                 var name = mem.sliceTo(self.strtab.?[sym.st_name - 2 ..], 0);
-                p("{s}: {}\n", .{ name, sym.st_size });
+                print("{s}: {}\n", .{ name, sym.st_size });
             }
         }
     }

@@ -1,5 +1,7 @@
 map $count array 4 8 1
 
+btf /sys/kernel/btf/vmlinux
+
 func $main MIT
   %ctx = arg
   %rax = ctxreg %ctx rax
