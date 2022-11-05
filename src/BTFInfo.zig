@@ -58,22 +58,30 @@ pub fn gettypes(self: *Self) !void {
     var pos: usize = 0;
     while (pos + @sizeOf(btf.Type) <= type_bytes.len) {
         const hdr = @ptrCast(*const btf.Type, @alignCast(4, type_bytes[pos..]));
-        print("TYPE {} {s} ", .{ pos, @tagName(hdr.info.kind) });
-        print("NAMM {s}\n", .{self.get_str(hdr.name_off).?});
+        // print("TYPE {} {s} ", .{ pos, @tagName(hdr.info.kind) });
+        // print("NAMM {s}\n", .{self.get_str(hdr.name_off).?});
         const size: usize = the_size: {
             switch (hdr.info.kind) {
                 inline else => |t| {
                     const member = member_type(t) orelse return error.InvalidType;
-                    print("type NAMM {s}", .{@typeName(member)});
+                    // print("type NAMM {s}", .{@typeName(member)});
                     break :the_size @sizeOf(member);
                 },
             }
         };
-        print(" SIZE {}, VLEN={}\n", .{ size, hdr.info.vlen });
+        // print(" SIZE {}, VLEN={}\n", .{ size, hdr.info.vlen });
         const items = switch (hdr.info.kind) {
             .@"enum", .enum64, .@"struct", .@"union", .funcProto, .dataSec => hdr.info.vlen,
             else => 1, // or zero, but then size is already zero
         };
+        if (hdr.info.kind == .@"struct") {
+            const arrpos = pos + @sizeOf(btf.Type);
+            print("struct '{s}' w items {}\n", .{ self.get_str(hdr.name_off).?, items });
+            const arr = @ptrCast([*]const btf.Member, @alignCast(4, type_bytes[arrpos..]))[0..items];
+            for (arr) |iytem, i| {
+                print("  {}: {s} typ={} off={},bs={}\n", .{ i, self.get_str(iytem.name_off).?, iytem.typ, iytem.offset.bit, iytem.offset.bitfield_size });
+            }
+        }
         pos += @sizeOf(btf.Type) + items * size;
         // if (hdr.info.vlen > 0) os.exit(3);
     }
