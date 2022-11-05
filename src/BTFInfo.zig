@@ -49,7 +49,11 @@ pub fn gettypes(self: *Self) !void {
     const real_off = self.header.hdr_len + self.header.type_off;
     const type_bytes = self.file_bytes[real_off..][0..self.header.type_len];
     const max_types = type_bytes.len / @sizeOf(btf.Type);
-    print("NYAAA~ {} {}\n", .{ max_types, type_bytes.len });
+    print("NYAAA~ {} {} {}\n", .{ max_types, type_bytes.len, @sizeOf(btf.Type) });
+    print("AAA {}\n", .{@alignOf(std.meta.fieldInfo(btf.Type, .name_off).field_type)});
+    print("BB {}\n", .{@alignOf(std.meta.fieldInfo(btf.Type, .info).field_type)});
+    print("CCC {}\n", .{@alignOf(std.meta.fieldInfo(btf.Type, .size_type).field_type)});
+    os.exit(3);
 
     var pos: usize = 0;
     while (pos + @sizeOf(btf.Type) <= type_bytes.len) {
