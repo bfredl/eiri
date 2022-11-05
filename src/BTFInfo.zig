@@ -45,6 +45,10 @@ pub fn init(btf_file: File) !Self {
     return self;
 }
 
+comptime {
+    if (@sizeOf(btf.Type) != 12) @compileError("btf.Type must be 12 bytes");
+}
+
 pub fn gettypes(self: *Self) !void {
     const real_off = self.header.hdr_len + self.header.type_off;
     const type_bytes = self.file_bytes[real_off..][0..self.header.type_len];
@@ -54,7 +58,8 @@ pub fn gettypes(self: *Self) !void {
     var pos: usize = 0;
     while (pos + @sizeOf(btf.Type) <= type_bytes.len) {
         const type_hdr = @ptrCast(*const btf.Type, @alignCast(4, type_bytes[pos..]));
-        print("TYPE {} {}\n", .{ pos, type_hdr.info });
+        print("TYPE {} {s} ", .{ pos, @tagName(type_hdr.info.kind) });
+        print("NAMM {s}\n", .{self.get_str(type_hdr.name_off).?});
         const size: usize = the_size: {
             switch (type_hdr.info.kind) {
                 inline else => |t| {
@@ -64,10 +69,17 @@ pub fn gettypes(self: *Self) !void {
                 },
             }
         };
-        print(" SIZE {}\n", .{size});
+        print(" SIZE {}, VLEN={}\n", .{ size, type_hdr.info.vlen });
         pos += @sizeOf(btf.Type) + type_hdr.info.vlen * size;
-        if (pos > 100) os.exit(3);
+        if (pos > 600) os.exit(3);
     }
+}
+
+pub fn get_str(self: *Self, off: u32) ?[]const u8 {
+    const base_off = self.header.hdr_len + self.header.str_off;
+    // TODO: bounds checking
+    const str = self.file_bytes[base_off + off ..];
+    return mem.sliceTo(str, 0);
 }
 
 fn member_type(comptime kind: btf.Kind) ?type {
