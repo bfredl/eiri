@@ -57,11 +57,11 @@ pub fn gettypes(self: *Self) !void {
 
     var pos: usize = 0;
     while (pos + @sizeOf(btf.Type) <= type_bytes.len) {
-        const type_hdr = @ptrCast(*const btf.Type, @alignCast(4, type_bytes[pos..]));
-        print("TYPE {} {s} ", .{ pos, @tagName(type_hdr.info.kind) });
-        print("NAMM {s}\n", .{self.get_str(type_hdr.name_off).?});
+        const hdr = @ptrCast(*const btf.Type, @alignCast(4, type_bytes[pos..]));
+        print("TYPE {} {s} ", .{ pos, @tagName(hdr.info.kind) });
+        print("NAMM {s}\n", .{self.get_str(hdr.name_off).?});
         const size: usize = the_size: {
-            switch (type_hdr.info.kind) {
+            switch (hdr.info.kind) {
                 inline else => |t| {
                     const member = member_type(t) orelse return error.InvalidType;
                     print("type NAMM {s}", .{@typeName(member)});
@@ -69,9 +69,13 @@ pub fn gettypes(self: *Self) !void {
                 },
             }
         };
-        print(" SIZE {}, VLEN={}\n", .{ size, type_hdr.info.vlen });
-        pos += @sizeOf(btf.Type) + type_hdr.info.vlen * size;
-        if (pos > 600) os.exit(3);
+        print(" SIZE {}, VLEN={}\n", .{ size, hdr.info.vlen });
+        const items = switch (hdr.info.kind) {
+            .@"enum", .enum64, .@"struct", .@"union", .funcProto, .dataSec => hdr.info.vlen,
+            else => 1, // or zero, but then size is already zero
+        };
+        pos += @sizeOf(btf.Type) + items * size;
+        // if (hdr.info.vlen > 0) os.exit(3);
     }
 }
 
