@@ -50,27 +50,23 @@ pub fn gettypes(self: *Self) !void {
     const type_bytes = self.file_bytes[real_off..][0..self.header.type_len];
     const max_types = type_bytes.len / @sizeOf(btf.Type);
     print("NYAAA~ {} {} {}\n", .{ max_types, type_bytes.len, @sizeOf(btf.Type) });
-    print("AAA {}\n", .{@alignOf(std.meta.fieldInfo(btf.Type, .name_off).field_type)});
-    print("BB {}\n", .{@alignOf(std.meta.fieldInfo(btf.Type, .info).field_type)});
-    print("CCC {}\n", .{@alignOf(std.meta.fieldInfo(btf.Type, .size_type).field_type)});
-    os.exit(3);
 
     var pos: usize = 0;
     while (pos + @sizeOf(btf.Type) <= type_bytes.len) {
-        const type_hdr = @ptrCast(*const btf.Type, @alignCast(8, type_bytes[pos..]));
+        const type_hdr = @ptrCast(*const btf.Type, @alignCast(4, type_bytes[pos..]));
         print("TYPE {} {}\n", .{ pos, type_hdr.info });
         const size: usize = the_size: {
             switch (type_hdr.info.kind) {
                 inline else => |t| {
                     const member = member_type(t) orelse return error.InvalidType;
-                    print("type NAMM {s}\n", .{@typeName(member)});
+                    print("type NAMM {s}", .{@typeName(member)});
                     break :the_size @sizeOf(member);
                 },
             }
         };
-        print("type SIZE {}\n", .{size});
+        print(" SIZE {}\n", .{size});
         pos += @sizeOf(btf.Type) + type_hdr.info.vlen * size;
-        if (pos > 500) os.exit(3);
+        if (pos > 100) os.exit(3);
     }
 }
 
