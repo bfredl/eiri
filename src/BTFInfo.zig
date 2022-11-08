@@ -71,7 +71,7 @@ pub fn gettypes(self: *Self) !void {
         };
         // print(" SIZE {}, VLEN={}\n", .{ size, hdr.info.vlen });
         const items = switch (hdr.info.kind) {
-            .@"enum", .enum64, .@"struct", .@"union", .funcProto, .dataSec => hdr.info.vlen,
+            .@"enum", .enum64, .@"struct", .@"union", .func_proto, .datasec => hdr.info.vlen,
             else => 1, // or zero, but then size is already zero
         };
         if (hdr.info.kind == .@"struct") {
@@ -104,17 +104,17 @@ fn member_type(comptime kind: btf.Kind) ?type {
         .typedef => void,
         .func => void,
         .float => void,
-        .typeTag => void,
+        .type_tag => void,
         .int => u32,
         .@"enum" => btf.Enum,
         .enum64 => btf.Enum64,
         .array => btf.Array,
         .@"struct" => btf.Member,
         .@"union" => btf.Member,
-        .funcProto => btf.Param,
+        .func_proto => btf.Param,
         .@"var" => btf.Var,
-        .dataSec => btf.VarSecInfo,
-        .declTag => btf.DeclTag,
+        .datasec => btf.VarSecInfo,
+        .decl_tag => btf.DeclTag,
         .unknown => null,
     };
 }
