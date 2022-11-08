@@ -13,8 +13,6 @@ const mem = std.mem;
 const fd_t = linux.fd_t;
 const errno = linux.getErrno;
 const print = std.debug.print;
-// const libbpf = @import("bpf");
-// const PerfBuffer = libbpf.PerfBuffer;
 
 pub var options = struct {
     dbg_raw_ir: bool = false,
