@@ -7,16 +7,16 @@ const mem = std.mem;
 const os = std.os;
 const io = std.io;
 const print = std.debug.print;
-const ArrayList = std.ArrayList;
 const BPF = os.linux.BPF;
 const btf = BPF.btf;
 
 const Self = @This();
-header: BPF.btf.Header = undefined,
+header: btf.Header = undefined,
 file_bytes: []align(mem.page_size) const u8 = undefined,
 
 // TODO: unmanage these, you disgust
-type_idx2off: ArrayList(u32) = undefined,
+type_idx2off: std.ArrayListUnmanaged(u32) = undefined,
+type_namehash: std.HashMapUnmanaged(u32, u32, DupStringIndexContext, 80) = .{},
 
 pub fn init(btf_file: File) !Self {
 
@@ -45,6 +45,16 @@ pub fn init(btf_file: File) !Self {
     self.file_bytes = @alignCast(mem.page_size, buf);
     try self.gettypes(allocator);
 
+    // try self.hgrug();
+
+    return self;
+}
+
+comptime {
+    if (@sizeOf(btf.Type) != 12) @compileError("btf.Type must be 12 bytes");
+}
+
+fn hgrug(self: *Self) !void {
     // TODO: hgrug
     const real_off = self.header.hdr_len + self.header.type_off;
     const type_bytes = self.file_bytes[real_off..][0..self.header.type_len];
@@ -69,12 +79,6 @@ pub fn init(btf_file: File) !Self {
             }
         }
     }
-
-    return self;
-}
-
-comptime {
-    if (@sizeOf(btf.Type) != 12) @compileError("btf.Type must be 12 bytes");
 }
 
 pub fn gettypes(self: *Self, allocator: Allocator) !void {
@@ -87,6 +91,10 @@ pub fn gettypes(self: *Self, allocator: Allocator) !void {
     // Ihe real number of types are roughly max_types/2 for vmlinux.
     self.type_idx2off = try @TypeOf(self.type_idx2off).initCapacity(allocator, max_types);
     self.type_idx2off.appendAssumeCapacity(0); // TODO: how best represent void here?
+
+    const str_bytes = self.file_bytes[self.header.hdr_len + self.header.str_off ..][0..self.header.str_len];
+    const ctx: DupStringIndexContext = .{ .bytes = str_bytes };
+    try self.type_namehash.ensureTotalCapacityContext(allocator, @intCast(u32, max_types), ctx);
 
     var pos: u32 = 0;
     var ntypes: usize = 0;
@@ -106,6 +114,16 @@ pub fn gettypes(self: *Self, allocator: Allocator) !void {
         // print(" SIZE {}, VLEN={}\n", .{ size, hdr.info.vlen });
         const items = nitems(hdr.*);
         self.type_idx2off.appendAssumeCapacity(pos);
+        if (str_bytes[hdr.name_off] != 0) {
+            const theitem = self.type_namehash.getOrPutAssumeCapacityContext(hdr.name_off, ctx);
+            if (theitem.found_existing) {
+                print("HUU: {s} {} {}\n", .{ self.get_str(hdr.name_off).?, theitem.value_ptr.*, pos });
+                const old_hdr = @ptrCast(*const btf.Type, @alignCast(4, type_bytes[theitem.value_ptr.*..]));
+                print("typ {s} vs {s}\n", .{ @tagName(old_hdr.info.kind), @tagName(hdr.info.kind) });
+            } else {
+                theitem.value_ptr.* = pos; // or index??
+            }
+        }
         pos += @intCast(u32, @sizeOf(btf.Type) + items * size);
         // if (hdr.info.vlen > 0) os.exit(3);
         ntypes += 1;
@@ -155,3 +173,22 @@ fn member_type(comptime kind: btf.Kind) ?type {
 // pub fn header(self: *Self) *const BPF.btf.Header {
 //    return @ptrCast(*const BPF.btf.Header, self.file_bytes.ptr);
 // }
+
+// like StringIndexContext, but buffer could contain duplicate strings?
+pub const DupStringIndexContext = struct {
+    bytes: []const u8,
+
+    pub fn eql(self: @This(), a: u32, b: u32) bool {
+        const a_slice = mem.sliceTo(@ptrCast([*:0]const u8, self.bytes.ptr) + a, 0);
+        const b_slice = mem.sliceTo(@ptrCast([*:0]const u8, self.bytes.ptr) + b, 0);
+        return mem.eql(u8, a_slice, b_slice);
+    }
+
+    pub fn hash(self: @This(), x: u32) u64 {
+        const x_slice = mem.sliceTo(@ptrCast([*:0]const u8, self.bytes.ptr) + x, 0);
+        return hashString(x_slice);
+    }
+    fn hashString(s: []const u8) u64 {
+        return std.hash.Wyhash.hash(0, s);
+    }
+};
