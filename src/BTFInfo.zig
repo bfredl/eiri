@@ -45,6 +45,10 @@ pub fn init(btf_file: File) !Self {
     self.file_bytes = @alignCast(mem.page_size, buf);
     try self.gettypes(allocator);
 
+    if (self.lookup_type("task_struct")) |typ| {
+        print("TYPEN: {}\n", .{typ});
+    }
+
     // try self.hgrug();
 
     return self;
@@ -81,18 +85,25 @@ fn hgrug(self: *Self) !void {
     }
 }
 
+fn get_type_bytes(self: *Self) []const u8 {
+    return self.file_bytes[self.header.hdr_len + self.header.type_off ..][0..self.header.type_len];
+}
+
+fn get_str_bytes(self: *Self) []const u8 {
+    return self.file_bytes[self.header.hdr_len + self.header.str_off ..][0..self.header.str_len];
+}
+
 pub fn gettypes(self: *Self, allocator: Allocator) !void {
     const real_off = self.header.hdr_len + self.header.type_off;
     const type_bytes = self.file_bytes[real_off..][0..self.header.type_len];
     const max_types = type_bytes.len / @sizeOf(btf.Type);
-    print("NYAAA~ {} {} {}\n", .{ max_types, type_bytes.len, @sizeOf(btf.Type) });
 
     // In practice, max_types is a good guess for the needed capacity
     // Ihe real number of types are roughly max_types/2 for vmlinux.
     self.type_idx2off = try @TypeOf(self.type_idx2off).initCapacity(allocator, max_types);
     self.type_idx2off.appendAssumeCapacity(0); // TODO: how best represent void here?
 
-    const str_bytes = self.file_bytes[self.header.hdr_len + self.header.str_off ..][0..self.header.str_len];
+    const str_bytes = self.get_str_bytes();
     const ctx: DupStringIndexContext = .{ .bytes = str_bytes };
     try self.type_namehash.ensureTotalCapacityContext(allocator, @intCast(u32, max_types), ctx);
 
@@ -117,9 +128,11 @@ pub fn gettypes(self: *Self, allocator: Allocator) !void {
         if (str_bytes[hdr.name_off] != 0) {
             const theitem = self.type_namehash.getOrPutAssumeCapacityContext(hdr.name_off, ctx);
             if (theitem.found_existing) {
-                print("HUU: {s} {} {}\n", .{ self.get_str(hdr.name_off).?, theitem.value_ptr.*, pos });
-                const old_hdr = @ptrCast(*const btf.Type, @alignCast(4, type_bytes[theitem.value_ptr.*..]));
-                print("typ {s} vs {s}\n", .{ @tagName(old_hdr.info.kind), @tagName(hdr.info.kind) });
+                // TODO: how do we even handle this
+
+                // print("HUU: {s} {} {}\n", .{ self.get_str(hdr.name_off).?, theitem.value_ptr.*, pos });
+                // const old_hdr = @ptrCast(*const btf.Type, @alignCast(4, type_bytes[theitem.value_ptr.*..]));
+                // print("typ {s} vs {s}\n", .{ @tagName(old_hdr.info.kind), @tagName(hdr.info.kind) });
             } else {
                 theitem.value_ptr.* = pos; // or index??
             }
@@ -128,7 +141,16 @@ pub fn gettypes(self: *Self, allocator: Allocator) !void {
         // if (hdr.info.vlen > 0) os.exit(3);
         ntypes += 1;
     }
-    print("NYAAA~~ {} {} fast {}\n", .{ max_types, type_bytes.len, ntypes });
+    // print("NYAAA~~ {} {} fast {}\n", .{ max_types, type_bytes.len, ntypes });
+}
+
+pub fn lookup_type(self: *Self, name: []const u8) ?*const btf.Type {
+    const adapter = StringIndexAdapter{ .bytes = self.get_str_bytes() };
+    if (self.type_namehash.getAdapted(name, adapter)) |off| {
+        return @ptrCast(*const btf.Type, @alignCast(4, self.get_type_bytes()[off..]));
+    } else {
+        return null;
+    }
 }
 
 fn nitems(hdr: btf.Type) u32 {
@@ -139,9 +161,8 @@ fn nitems(hdr: btf.Type) u32 {
 }
 
 pub fn get_str(self: *Self, off: u32) ?[]const u8 {
-    const base_off = self.header.hdr_len + self.header.str_off;
     // TODO: bounds checking
-    const str = self.file_bytes[base_off + off ..];
+    const str = self.get_str_bytes()[off..];
     return mem.sliceTo(str, 0);
 }
 
@@ -186,9 +207,20 @@ pub const DupStringIndexContext = struct {
 
     pub fn hash(self: @This(), x: u32) u64 {
         const x_slice = mem.sliceTo(@ptrCast([*:0]const u8, self.bytes.ptr) + x, 0);
-        return hashString(x_slice);
+        return std.hash_map.hashString(x_slice);
     }
-    fn hashString(s: []const u8) u64 {
-        return std.hash.Wyhash.hash(0, s);
+};
+
+pub const StringIndexAdapter = struct {
+    bytes: []const u8,
+
+    pub fn eql(self: @This(), a_slice: []const u8, b: u32) bool {
+        const b_slice = mem.sliceTo(@ptrCast([*:0]const u8, self.bytes.ptr) + b, 0);
+        return mem.eql(u8, a_slice, b_slice);
+    }
+
+    pub fn hash(self: @This(), adapted_key: []const u8) u64 {
+        _ = self;
+        return std.hash_map.hashString(adapted_key);
     }
 };
