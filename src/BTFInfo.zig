@@ -45,8 +45,23 @@ pub fn init(btf_file: File) !Self {
     self.file_bytes = @alignCast(mem.page_size, buf);
     try self.gettypes(allocator);
 
-    if (self.lookup_type("task_struct")) |typ| {
-        print("TYPEN: {}\n", .{typ});
+    if (self.lookup_type("task_struct")) |off| {
+        const hdr = self.type_header(off);
+        print("TYPEN: {}\n", .{hdr});
+        if (hdr.info.kind == .@"struct") {
+            const items = try self.type_items(off, hdr.*, .@"struct");
+            for (items) |iytem, i| {
+                const toff = if (iytem.typ < self.type_idx2off.items.len) self.type_idx2off.items[iytem.typ] else return error.@"vafan håller du ens på med";
+                const typedesc = namm: {
+                    if (iytem.typ > 0) {
+                        const fieldhdr = self.type_header(toff);
+                        break :namm self.get_str(fieldhdr.name_off).?;
+                    } else break :namm "void";
+                };
+
+                print("  {}: {s} typ={s} ({}) off={},bs={}\n", .{ i, self.get_str(iytem.name_off).?, typedesc, iytem.typ, iytem.offset.bit, iytem.offset.bitfield_size });
+            }
+        }
     }
 
     // try self.hgrug();
@@ -113,7 +128,7 @@ pub fn gettypes(self: *Self, allocator: Allocator) !void {
         const hdr = @ptrCast(*const btf.Type, @alignCast(4, type_bytes[pos..]));
         // print("TYPE {} {s} ", .{ pos, @tagName(hdr.info.kind) });
         // print("NAMM {s}\n", .{self.get_str(hdr.name_off).?});
-        const size: usize = the_size: {
+        const item_size: usize = the_size: {
             switch (hdr.info.kind) {
                 inline else => |t| {
                     const member = member_type(t) orelse return error.InvalidType;
@@ -122,7 +137,7 @@ pub fn gettypes(self: *Self, allocator: Allocator) !void {
                 },
             }
         };
-        // print(" SIZE {}, VLEN={}\n", .{ size, hdr.info.vlen });
+        // print(" SIZE {}, VLEN={}\n", .{ item_size, hdr.info.vlen });
         const items = nitems(hdr.*);
         self.type_idx2off.appendAssumeCapacity(pos);
         if (str_bytes[hdr.name_off] != 0) {
@@ -137,20 +152,29 @@ pub fn gettypes(self: *Self, allocator: Allocator) !void {
                 theitem.value_ptr.* = pos; // or index??
             }
         }
-        pos += @intCast(u32, @sizeOf(btf.Type) + items * size);
+        pos += @intCast(u32, @sizeOf(btf.Type) + items * item_size);
         // if (hdr.info.vlen > 0) os.exit(3);
         ntypes += 1;
     }
     // print("NYAAA~~ {} {} fast {}\n", .{ max_types, type_bytes.len, ntypes });
 }
 
-pub fn lookup_type(self: *Self, name: []const u8) ?*const btf.Type {
+pub fn lookup_type(self: *Self, name: []const u8) ?u32 {
     const adapter = StringIndexAdapter{ .bytes = self.get_str_bytes() };
-    if (self.type_namehash.getAdapted(name, adapter)) |off| {
-        return @ptrCast(*const btf.Type, @alignCast(4, self.get_type_bytes()[off..]));
-    } else {
-        return null;
-    }
+    return self.type_namehash.getAdapted(name, adapter);
+}
+
+pub fn type_header(self: *Self, off: u32) *const btf.Type {
+    return @ptrCast(*const btf.Type, @alignCast(4, self.get_type_bytes()[off..]));
+}
+
+pub fn type_items(self: *Self, off: u32, hdr: btf.Type, comptime kind: anytype) ![]const member_type(kind).? {
+    const arrpos = off + @sizeOf(btf.Type);
+    const items = nitems(hdr);
+    if (hdr.info.kind != kind) return error.UnexpectedKind;
+    const item_type = member_type(kind).?;
+    const arr = @ptrCast([*]const item_type, @alignCast(4, self.get_type_bytes()[arrpos..]))[0..items];
+    return arr;
 }
 
 fn nitems(hdr: btf.Type) u32 {
