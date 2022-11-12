@@ -484,8 +484,9 @@ pub fn ret(self: *Self, node: u16, val: u16) !void {
     _ = try self.addInst(node, .{ .tag = .ret, .op1 = val, .op2 = 0 });
 }
 
-pub fn prePhi(self: *Self, node: u16, v: Inst) !u16 {
-    return self.preInst(node, .{ .tag = .phi, .op1 = v.op1, .op2 = 0, .spec = v.spec });
+pub fn prePhi(self: *Self, node: u16, vref: u16) !u16 {
+    const v = self.iref(vref) orelse return error.FLIRError;
+    return self.preInst(node, .{ .tag = .phi, .op1 = vref, .op2 = 0, .spec = v.spec });
 }
 
 // TODO: maintain wf of block 0: first all args, then all vars.
