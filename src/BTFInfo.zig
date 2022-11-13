@@ -45,22 +45,16 @@ pub fn init(btf_file: File) !Self {
     self.file_bytes = @alignCast(mem.page_size, buf);
     try self.gettypes(allocator);
 
-    if (self.lookup_type("task_struct")) |off| {
-        const hdr = self.type_header(off);
-        print("TYPEN: {}\n", .{hdr});
-        if (hdr.info.kind == .@"struct") {
-            const items = try self.type_items(off, hdr.*, .@"struct");
-            for (items) |iytem, i| {
-                const toff = if (iytem.typ < self.type_idx2off.items.len) self.type_idx2off.items[iytem.typ] else return error.@"vafan håller du ens på med";
-                const typedesc = namm: {
-                    if (iytem.typ > 0) {
-                        const fieldhdr = self.type_header(toff);
-                        break :namm self.get_str(fieldhdr.name_off).?;
-                    } else break :namm "void";
-                };
-
-                print("  {}: {s} typ={s} ({}) off={},bs={}\n", .{ i, self.get_str(iytem.name_off).?, typedesc, iytem.typ, iytem.offset.bit, iytem.offset.bitfield_size });
-            }
+    if (try self.lookup_type_kind("task_struct", .@"struct")) |typ| {
+        for (typ.items) |iytem, i| {
+            const toff = if (iytem.typ < self.type_idx2off.items.len) self.type_idx2off.items[iytem.typ] else return error.@"vafan håller du ens på med";
+            const typedesc = namm: {
+                if (iytem.typ > 0) {
+                    const fieldhdr = self.type_header(toff);
+                    break :namm self.get_str(fieldhdr.name_off).?;
+                } else break :namm "void";
+            };
+            print("  {}: {s} typ={s} ({}) off={},bs={}\n", .{ i, self.get_str(iytem.name_off).?, typedesc, iytem.typ, iytem.offset.bit, iytem.offset.bitfield_size });
         }
     }
 
@@ -71,33 +65,6 @@ pub fn init(btf_file: File) !Self {
 
 comptime {
     if (@sizeOf(btf.Type) != 12) @compileError("btf.Type must be 12 bytes");
-}
-
-fn hgrug(self: *Self) !void {
-    // TODO: hgrug
-    const real_off = self.header.hdr_len + self.header.type_off;
-    const type_bytes = self.file_bytes[real_off..][0..self.header.type_len];
-    for (self.type_idx2off.items) |pos, t| {
-        if (t == 0) continue;
-        const hdr = @ptrCast(*const btf.Type, @alignCast(4, type_bytes[pos..]));
-        if (hdr.info.kind == .@"struct") {
-            const arrpos = pos + @sizeOf(btf.Type);
-            const items = nitems(hdr.*);
-            print("{}: struct '{s}' w items {}\n", .{ t, self.get_str(hdr.name_off).?, items });
-            const arr = @ptrCast([*]const btf.Member, @alignCast(4, type_bytes[arrpos..]))[0..items];
-            for (arr) |iytem, i| {
-                const toff = if (iytem.typ < self.type_idx2off.items.len) self.type_idx2off.items[iytem.typ] else return error.@"vafan håller du ens på med";
-                const typedesc = namm: {
-                    if (iytem.typ > 0) {
-                        const fieldhdr = @ptrCast(*const btf.Type, @alignCast(4, type_bytes[toff..]));
-                        break :namm self.get_str(fieldhdr.name_off).?;
-                    } else break :namm "void";
-                };
-
-                print("  {}: {s} typ={s} ({}) off={},bs={}\n", .{ i, self.get_str(iytem.name_off).?, typedesc, iytem.typ, iytem.offset.bit, iytem.offset.bitfield_size });
-            }
-        }
-    }
 }
 
 fn get_type_bytes(self: *Self) []const u8 {
@@ -168,13 +135,20 @@ pub fn type_header(self: *Self, off: u32) *const btf.Type {
     return @ptrCast(*const btf.Type, @alignCast(4, self.get_type_bytes()[off..]));
 }
 
-pub fn type_items(self: *Self, off: u32, hdr: btf.Type, comptime kind: anytype) ![]const member_type(kind).? {
+pub fn type_items(self: *Self, off: u32, hdr: btf.Type, comptime kind: btf.Kind) ![]const member_type(kind).? {
     const arrpos = off + @sizeOf(btf.Type);
     const items = nitems(hdr);
     if (hdr.info.kind != kind) return error.UnexpectedKind;
     const item_type = member_type(kind).?;
     const arr = @ptrCast([*]const item_type, @alignCast(4, self.get_type_bytes()[arrpos..]))[0..items];
     return arr;
+}
+
+pub fn lookup_type_kind(self: *Self, name: []const u8, comptime kind: btf.Kind) !?struct { hdr: btf.Type, items: []const member_type(kind).? } {
+    const off = self.lookup_type(name) orelse return null;
+    const hdr = self.type_header(off);
+    const items = try self.type_items(off, hdr.*, kind);
+    return .{ .hdr = hdr.*, .items = items };
 }
 
 fn nitems(hdr: btf.Type) u32 {
