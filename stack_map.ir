@@ -1,0 +1,19 @@
+map $ringbuf ringbuf 0 0 4096
+map $stackmap stack_trace 4 1016 16384
+map $hashmap hash 4 8 16384
+
+func $main GPL
+  %ctx = arg
+  %key = alloc
+  %map = map $hashmap
+  %stackmap = map $stackmap
+  %id = call get_stackid %ctx %stackmap 257
+  store [%key] %id
+  %valptr = call map_lookup_elem %map %key
+  eq %valptr 0 :exit
+:exit
+  ret 0
+end
+
+elf $neovim /home/bfredl/dev/neovim/build/bin/nvim
+attach $main uprobe $neovim xmemdupz
