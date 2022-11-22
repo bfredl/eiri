@@ -19,6 +19,7 @@ pub var options = struct {
     dbg_analysed_ir: bool = false,
     dbg_disasm: bool = false,
     dbg_disasm_ir: bool = false,
+    dbg_syms: bool = false,
     sys: bool = true,
 }{};
 
@@ -57,6 +58,7 @@ pub fn main() !void {
                 'a' => options.dbg_analysed_ir = true,
                 'd' => options.dbg_disasm = true,
                 'D' => options.dbg_disasm_ir = true,
+                's' => options.dbg_syms = true,
                 't' => options.sys = false,
                 else => return usage(),
             }

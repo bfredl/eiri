@@ -194,7 +194,9 @@ pub fn toplevel(self: *Self) !void {
         const name = try require(try self.objname(), "name");
         const license = try require(self.keyword(), "license");
         try self.lbrk();
-        print("FUNC '{s}' \n", .{name});
+        if (options.dbg_raw_ir or options.dbg_analysed_ir or options.dbg_disasm) {
+            print("FUNC '{s}' \n", .{name});
+        }
         const item = try nonexisting(&self.fd_objs, name, "object $");
         var func: Func = .{
             .ir = try FLIR.init(4, self.allocator),
@@ -249,18 +251,28 @@ fn get_probe(self: *Self) !fd_t {
         // TODO: share this, like a non-savage
         const kprobe_type = try bpfUtil.getKprobeType();
         return bpfUtil.perf_open_probe_cstr(kprobe_type, func, offset);
-    }
-    if (mem.eql(u8, kind, "usdt")) {
+    } else if (mem.eql(u8, kind, "uprobe") or mem.eql(u8, kind, "usdt")) {
         const elf_name = try require(try self.objname(), "elf name");
         _ = self.nonws();
         const probe = try self.identifier();
         const elf = try self.require_obj(elf_name, .elf);
-        const sdt = try ElfSymbols.test_get_usdt(elf.sdts.items, probe);
+        const iaddr = addr: {
+            if (mem.eql(u8, kind, "usdt")) {
+                const sdt = try ElfSymbols.test_get_usdt(elf.sdts.items, probe);
+                break :addr sdt.h.pc;
+            } else {
+                const sym = elf.syms.test_get_sym_sloow(probe) orelse return error.ParseError;
+                break :addr sym.st_value;
+            }
+        };
+        if (options.dbg_syms) {
+            print("probe {s} '{s}' at {x}\n", .{ kind, probe, iaddr });
+        }
 
         if (!options.sys) return 55;
         // TODO: share this, like a non-savage
         const uprobe_type = try bpfUtil.getUprobeType();
-        return bpfUtil.perf_open_probe_cstr(uprobe_type, elf.fname, sdt.h.pc);
+        return bpfUtil.perf_open_probe_cstr(uprobe_type, elf.fname, iaddr);
     } else {
         return error.ParseError;
     }

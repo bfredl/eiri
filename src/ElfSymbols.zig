@@ -19,6 +19,7 @@ file_bytes: []align(mem.page_size) const u8,
 header: elf.Header,
 shstrtab: ?[]const u8 = null,
 symtab: ?[]const elf.Elf64_Sym = null,
+symstrtab: ?[]const u8 = null,
 strtab: ?[]const u8 = null,
 note_std: ?[]align(4) const u8 = null,
 
@@ -59,15 +60,10 @@ pub fn init(elf_file: File) !Self {
     var stream = io.fixedBufferStream(file_bytes);
 
     var self = Self{ .file_bytes = file_bytes, .header = elf_hdr };
+    const shdrs = mem.bytesAsSlice(elf.Shdr, file_bytes[elf_hdr.shoff..])[0..elf_hdr.shnum];
 
     if (elf_hdr.shstrndx < elf_hdr.shnum) {
-        var section_headers = elf_hdr.section_header_iterator(&stream);
-
-        var section_counter: usize = 0;
-        while (section_counter < elf_hdr.shstrndx) : (section_counter += 1) {
-            _ = (try section_headers.next()).?;
-        }
-        const shstrtab_shdr = (try section_headers.next()).?;
+        const shstrtab_shdr = shdrs[elf_hdr.shstrndx];
         self.shstrtab = file_bytes[shstrtab_shdr.sh_offset..][0..shstrtab_shdr.sh_size];
     }
 
@@ -93,6 +89,9 @@ pub fn init(elf_file: File) !Self {
         const symtab_raw = file_bytes[st.sh_offset..][0..st.sh_size];
         const items = st.sh_size / st.sh_entsize;
         self.symtab = @ptrCast([*]const elf.Elf64_Sym, @alignCast(8, symtab_raw.ptr))[0..items];
+
+        const symstr_shdr = shdrs[st.sh_link];
+        self.symstrtab = file_bytes[symstr_shdr.sh_offset..][0..symstr_shdr.sh_size];
     }
 
     if (strtab) |st| {
@@ -158,4 +157,18 @@ pub fn test_get_usdt(sdts: []Stapsdt, sdtname: []const u8) !Stapsdt {
         }
     }
     return error.ProbeNotFound;
+}
+
+pub fn test_get_sym_sloow(self: *const Self, symname: []const u8) ?elf.Elf64_Sym {
+    const symtab = self.symtab orelse return null;
+    const strtab = self.symstrtab orelse return null;
+    for (symtab) |sym| {
+        if (sym.st_name >= strtab.len) continue;
+        var name = mem.sliceTo(strtab[sym.st_name..], 0);
+        // print("{s}: {}\n", .{ name, sym.st_size });
+        if (mem.eql(u8, symname, name)) {
+            return sym;
+        }
+    }
+    return null;
 }
