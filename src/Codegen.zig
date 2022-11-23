@@ -372,6 +372,12 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
             }
         }
 
+        var fallthru = ni + 1;
+        while (fallthru < self.n.items.len and self.n.items[fallthru].npred == 0) {
+            fallthru += 1;
+        }
+        var default_branch: u8 = 0;
+
         var cur_blk: ?u16 = n.firstblk;
         // var ea_fused: Self.EAddr = undefined;
         var fused_inst: ?*Inst = null;
@@ -400,8 +406,22 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
                     .constant => try mcmovi(cfo, i.*),
                     .icmp => {
                         const firstop = self.iref(i.op1).?.ipreg() orelse .r0;
-                        const pos = try regjmpmc(cfo, @intToEnum(Insn.JmpOp, i.spec), firstop, self.iref(i.op2).?.*);
-                        targets[ni][1] = pos;
+                        var spec = @intToEnum(Insn.JmpOp, i.spec);
+                        var taken: u1 = 1;
+
+                        // TODO: this should have been optimized earlier!
+                        if (n.s[1] == fallthru and n.s[0] != 0) {
+                            if (spec == .jeq) {
+                                spec = .jne;
+                            } else {
+                                unreachable;
+                            }
+                            default_branch = 1;
+                            taken = 0;
+                        }
+
+                        const pos = try regjmpmc(cfo, spec, firstop, self.iref(i.op2).?.*);
+                        targets[ni][taken] = pos;
                     },
                     .putphi => {
                         // TODO: actually check for parallell-move conflicts
@@ -495,29 +515,12 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
             cur_blk = b.next();
         }
 
-        var fallthru = ni + 1;
-        while (fallthru < self.n.items.len and self.n.items[fallthru].npred == 0) {
-            fallthru += 1;
+        if (n.s[default_branch] != fallthru and n.s[default_branch] != 0) {
+            const pos = cfo.get_target();
+            try cfo.put(I.ja(0x7FFF)); // unconditional
+            targets[ni][default_branch] = pos;
         }
         // TODO: port handling trivial critical-edge block back to forklift!.
-        if ((n.s[0] == fallthru) and n.s[1] != 0) {
-            // TOTO: assert  last instruction was a cond jmp!
-
-            // try makejmp(self, cfo, .nl, uv(ni), 1, labels, targets);
-        } else {
-            const default: u1 = default: {
-                if (n.s[1] != 0) {
-                    unreachable;
-                    // try makejmp(self, cfo, .l, uv(ni), 0, labels, targets);
-                    // break :default 1;
-                } else break :default 0;
-            };
-
-            if (n.s[default] != fallthru and n.s[default] != 0) {
-                // try makejmp(self, cfo, null, uv(ni), default, labels, targets);
-                unreachable;
-            }
-        }
     }
 
     // try cfo.leave();

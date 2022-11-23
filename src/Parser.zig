@@ -351,6 +351,11 @@ pub fn stmt(self: *Self, f: *Func) ParseError!bool {
             // TODO: mark current node as DED, need either a new node or an unconditional jump
             f.ir.n.items[f.curnode].s[1] = try get_label(f, target, true);
             return true;
+        } else if (mem.eql(u8, kw, "jmp")) {
+            const target = try require(try self.labelname(), "src");
+            // TODO: mark current node as really DED
+            f.ir.n.items[f.curnode].s[0] = try get_label(f, target, true);
+            return true;
         } else if (mem.eql(u8, kw, "store")) {
             try self.expect_char('[');
             const dest = try require(try self.call_arg(f), "destination");

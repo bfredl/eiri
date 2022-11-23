@@ -5,12 +5,20 @@ map $hashmap hash 4 8 16384
 func $main GPL
   %ctx = arg
   %key = alloc
+  %one = alloc
   %map = map $hashmap
   %stackmap = map $stackmap
   %id = call get_stackid %ctx %stackmap 257
   store [%key] %id
   %valptr = call map_lookup_elem %map %key
-  eq %valptr 0 :exit
+  eq %valptr 0 :new
+:doit
+  xadd [%valptr] 1
+  jmp :exit
+:new
+  TODO: store 64 bit!
+  store [%one] 1
+  %status = call map_update_elem %map %key %one 1
 :exit
   ret 0
 end

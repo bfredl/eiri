@@ -12,7 +12,7 @@ const print = std.debug.print;
 pub fn prog_test_run(
     prog: fd_t,
 ) !u32 {
-    var attr = BPF.Attr{
+    var attr = Attr{
         .test_run = mem.zeroes(BPF.TestRunAttr),
     };
 
@@ -36,7 +36,7 @@ pub fn prog_test_run(
 }
 
 pub fn prog_attach_perf(target: fd_t, prog: fd_t) !u32 {
-    var attr = BPF.Attr{
+    var attr = Attr{
         .prog_attach = mem.zeroes(BPF.ProgAttachAttr),
     };
 
@@ -163,4 +163,29 @@ pub fn prog_load_verbose(prog_type: BPF.ProgType, c: []BPF.Insn, license: []cons
         print("ERROR {s}\n", .{mem.sliceTo(&loggen, 0)});
         return err;
     };
+}
+
+const Attr = BPF.Attr;
+const MapElemAttr = BPF.MapElemAttr;
+const unexpectedErrno = std.os.unexpectedErrno;
+
+pub fn map_get_next_key(fd: fd_t, key: []const u8, next_key: []u8) !bool {
+    var attr = Attr{
+        .map_elem = std.mem.zeroes(MapElemAttr),
+    };
+
+    attr.map_elem.map_fd = fd;
+    attr.map_elem.key = @ptrToInt(key.ptr);
+    attr.map_elem.result.next_key = @ptrToInt(next_key.ptr);
+
+    const rc = linux.bpf(.map_get_next_key, &attr, @sizeOf(MapElemAttr));
+    switch (errno(rc)) {
+        .SUCCESS => return true,
+        .BADF => return error.BadFd,
+        .FAULT => unreachable,
+        .INVAL => return error.FieldInAttrNeedsZeroing,
+        .NOENT => return false,
+        .PERM => return error.AccessDenied,
+        else => |err| return unexpectedErrno(err),
+    }
 }

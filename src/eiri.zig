@@ -82,19 +82,27 @@ pub fn main() !void {
         null;
     var did_read = false;
 
-    var count_map = try parser.get_obj("count", .map);
+    const count_map = try parser.get_obj("count", .map);
     if (count_map) |map| {
         if (map.key_size != 4 or map.val_size != 8) {
             return error.whatthef;
         }
     }
 
+    const hash_map = try parser.get_obj("hashmap", .map);
+    if (hash_map) |map| {
+        if (map.key_size != 4 or map.val_size != 8) {
+            return error.whatthef;
+        }
+    }
+
     var lastval: u64 = @truncate(u64, -1);
+    const asBytes = mem.asBytes;
     while (true) {
         if (count_map) |map| {
             const key: u32 = 0;
             var value: u64 = undefined;
-            try BPF.map_lookup_elem(map.fd, mem.asBytes(&key), mem.asBytes(&value));
+            try BPF.map_lookup_elem(map.fd, asBytes(&key), asBytes(&value));
             if (value < lastval or value > lastval + 1) {
                 print("VALUE: {}. That's NUMBERWANG!\n", .{value});
                 lastval = value;
@@ -106,6 +114,18 @@ pub fn main() !void {
                 did_read = true;
                 print("VERY EVENT: {}\n", .{ev});
                 rb.consume_event(ev);
+            }
+        }
+
+        if (hash_map) |hash| {
+            var key: u32 = 0;
+            var next_key: u32 = 0;
+            print("hashy: \n", .{});
+            while (try bpfUtil.map_get_next_key(hash.fd, asBytes(&key), asBytes(&next_key))) {
+                key = next_key;
+                var value: u64 = 0;
+                try BPF.map_lookup_elem(hash.fd, asBytes(&key), asBytes(&value));
+                print("K: {}, V: {}\n", .{ key, value });
             }
         }
     }
