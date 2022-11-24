@@ -16,7 +16,6 @@ func $main GPL
   xadd [%valptr] 1
   jmp :exit
 :new
-  TODO: store 64 bit!
   store [%one] 1
   %status = call map_update_elem %map %key %one 1
 :exit

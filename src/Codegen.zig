@@ -287,7 +287,7 @@ fn stx(self: *Self, dst: EAddr, src: IPReg) !void {
 
 fn st(self: *Self, dst: EAddr, src: anytype) !void {
     // TODO: AAAA wrong size
-    try self.put(I.st(.word, @intToEnum(IPReg, dst.reg), dst.off, src));
+    try self.put(I.st(.double_word, @intToEnum(IPReg, dst.reg), dst.off, src));
 }
 
 fn addrmovmc(self: *Self, dst: EAddr, src: Inst) !void {

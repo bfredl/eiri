@@ -96,6 +96,13 @@ pub fn main() !void {
         }
     }
 
+    const stack_map = try parser.get_obj("stackmap", .map);
+    if (stack_map) |map| {
+        if (map.key_size != 4 or map.val_size > 1024) {
+            return error.whatthef;
+        }
+    }
+
     var lastval: u64 = @truncate(u64, -1);
     const asBytes = mem.asBytes;
     while (true) {
@@ -121,11 +128,22 @@ pub fn main() !void {
             var key: u32 = 0;
             var next_key: u32 = 0;
             print("hashy: \n", .{});
-            while (try bpfUtil.map_get_next_key(hash.fd, asBytes(&key), asBytes(&next_key))) {
+            while (try BPF.map_get_next_key(hash.fd, asBytes(&key), asBytes(&next_key))) {
                 key = next_key;
                 var value: u64 = 0;
                 try BPF.map_lookup_elem(hash.fd, asBytes(&key), asBytes(&value));
                 print("K: {}, V: {}\n", .{ key, value });
+                if (stack_map) |stack| {
+                    var stack_value: [128]u64 = [1]u64{0xDEADBEEFDEADF00D} ** 128;
+                    BPF.map_lookup_elem(stack.fd, asBytes(&key), asBytes(&stack_value)) catch |e| {
+                        if (e == error.NotFound) continue;
+                        return e;
+                    };
+                    // TODO: we can figure this out dynamically by taking the $rip at some
+                    // know function. then also ASLR of the main binary will be supported.
+                    const off: u64 = 0x555555554000;
+                    print("0x{x}\n0x{x}\n0x{x}\n", .{ stack_value[0] - off, stack_value[1] - off, stack_value[2] - off });
+                }
             }
         }
     }
