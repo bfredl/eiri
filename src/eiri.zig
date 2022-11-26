@@ -92,7 +92,7 @@ pub fn main() !void {
 
     const count_map = try parser.get_obj("count", .map);
     if (count_map) |map| {
-        if (map.key_size != 4 or map.val_size != 8) {
+        if (map.key_size != 4 or map.val_size > 16) {
             return error.whatthef;
         }
     }
@@ -124,11 +124,14 @@ pub fn main() !void {
         std.time.sleep(1e9);
         if (count_map) |map| {
             const key: u32 = 0;
-            var value: u64 = undefined;
+            var value: [2]u64 = undefined;
             try BPF.map_lookup_elem(map.fd, asBytes(&key), asBytes(&value));
-            if (value < lastval or value > lastval + 1) {
-                print("VALUE: {}. That's NUMBERWANG!\n", .{value});
-                lastval = value;
+            if (value[0] < lastval or value[0] > lastval + 1) {
+                print("VALUE: {}. That's NUMBERWANG!\n", .{value[0]});
+                lastval = value[0];
+                if (map.val_size >= 16) {
+                    print("EXTRA VALUE: {}\n", .{value[1]});
+                }
             }
         }
         if (ringbuf) |*rb| {
