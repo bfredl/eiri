@@ -5,13 +5,13 @@ const ElfSymbols = @import("./ElfSymbols.zig");
 const FLIR = @import("./FLIR.zig");
 const RingBuf = @import("./RingBuf.zig");
 const Parser = @import("./Parser.zig");
-const linux = std.os.linux;
-const BPF = linux.BPF;
+const os = std.os;
+const BPF = os.linux.BPF;
 const Insn = BPF.Insn;
 const io = std.io;
 const mem = std.mem;
-const fd_t = linux.fd_t;
-const errno = linux.getErrno;
+const fd_t = os.linux.fd_t;
+const errno = os.linux.getErrno;
 const print = std.debug.print;
 
 pub var options = struct {
@@ -35,6 +35,14 @@ pub fn usage() void {
         \\    D: print BPF disassembly per IR node
         \\
     , .{});
+}
+
+var did_int = false;
+fn on_sigint(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const anyopaque) callconv(.C) void {
+    _ = sig;
+    _ = info;
+    _ = ctx_ptr;
+    did_int = true;
 }
 
 pub fn main() !void {
@@ -103,9 +111,17 @@ pub fn main() !void {
         }
     }
 
+    var sa = os.Sigaction{
+        .handler = .{ .sigaction = on_sigint },
+        .mask = os.empty_sigset,
+        .flags = os.SA.SIGINFO,
+    };
+    try os.sigaction(os.SIG.INT, &sa, null);
+
     var lastval: u64 = @truncate(u64, -1);
     const asBytes = mem.asBytes;
-    while (true) {
+    while (!did_int) {
+        std.time.sleep(1e9);
         if (count_map) |map| {
             const key: u32 = 0;
             var value: u64 = undefined;
@@ -115,7 +131,6 @@ pub fn main() !void {
                 lastval = value;
             }
         }
-        std.time.sleep(1e9);
         if (ringbuf) |*rb| {
             while (rb.peek_event()) |ev| {
                 did_read = true;
@@ -123,32 +138,36 @@ pub fn main() !void {
                 rb.consume_event(ev);
             }
         }
+    }
+    print("DUN\n", .{});
 
-        if (hash_map) |hash| {
-            var key: u32 = 0;
-            var next_key: u32 = 0;
-            print("hashy: \n", .{});
-            while (try BPF.map_get_next_key(hash.fd, asBytes(&key), asBytes(&next_key))) {
-                key = next_key;
-                var value: u64 = 0;
-                try BPF.map_lookup_elem(hash.fd, asBytes(&key), asBytes(&value));
-                print("K: {}, V: {}\n", .{ key, value });
-                if (stack_map) |stack| {
-                    var stack_value: [128]u64 = [1]u64{0xDEADBEEFDEADF00D} ** 128;
-                    BPF.map_lookup_elem(stack.fd, asBytes(&key), asBytes(&stack_value)) catch |e| {
-                        if (e == error.NotFound) continue;
-                        return e;
-                    };
-                    // TODO: we can figure this out dynamically by taking the $rip at some
-                    // know function. then also ASLR of the main binary will be supported.
-                    const off: u64 = 0x555555554000;
-                    print("0x{x}\n0x{x}\n0x{x}\n", .{ stack_value[0] - off, stack_value[1] - off, stack_value[2] - off });
-                }
+    if (hash_map) |hash| {
+        var key: u32 = 0;
+        var next_key: u32 = 0;
+        print("hashy: \n", .{});
+        while (try BPF.map_get_next_key(hash.fd, asBytes(&key), asBytes(&next_key))) {
+            key = next_key;
+            var value: u64 = 0;
+            try BPF.map_lookup_elem(hash.fd, asBytes(&key), asBytes(&value));
+            print("{}: ", .{value});
+            if (stack_map) |stack| {
+                var trace: [128]u64 = [1]u64{0xDEADBEEFDEADF00D} ** 128;
+                BPF.map_lookup_elem(stack.fd, asBytes(&key), asBytes(&trace)) catch |e| {
+                    if (e == error.NotFound) continue;
+                    return e;
+                };
+                print("0x{x} 0x{x} 0x{x}\n", .{ adj(trace[0]), adj(trace[1]), adj(trace[2]) });
             }
         }
     }
-
     // doesn't work on kprobe programs (more context needed?)
     // const retval = try bpfUtil.prog_test_run(prog);
     // print("RETURNERA: {}\n", .{retval});
+}
+
+fn adj(val: u64) u64 {
+    // TODO: we can figure this out dynamically by taking the $rip at some
+    // know function. then also ASLR of the main binary will be supported.
+    const off: u64 = 0x555555554000;
+    return if (val > off) val - off else val;
 }

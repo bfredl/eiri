@@ -1,0 +1,12 @@
+map $count array 4 8 1
+
+func $main MIT
+  %value = map_value $count
+  xadd [%value] 1
+  ret 0
+end
+
+elf $neovim /home/bfredl/dev/neovim/build/bin/nvim
+attach $main uprobe $neovim xmalloc
+attach $main uprobe $neovim xcalloc
+attach $main uprobe $neovim xrealloc
