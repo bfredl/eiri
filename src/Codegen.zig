@@ -20,7 +20,28 @@ code: ArrayList(Insn),
 const Self = @This();
 const options = &@import("root").options;
 
-const EAddr = struct { reg: u4, off: i16 };
+const EAddr = struct {
+    reg: u4,
+    off: i16,
+    fn with_off(self: EAddr, off: i16) EAddr {
+        return .{ .reg = self.reg, .off = self.off + off };
+    }
+};
+
+fn get_eaddr(self: *FLIR, i: FLIR.Inst, comptime may_lea: bool) !EAddr {
+    if (may_lea and i.tag == .lea) {
+        const base = self.iref(i.op1).?.*;
+        const baseval = try get_eaddr(self, base, false);
+        const off = @bitCast(i16, i.op2);
+        return baseval.with_off(off);
+    } else if (i.mckind == .ipreg) {
+        return .{ .reg = @intCast(u4, i.mcidx), .off = 0 };
+    } else if (i.tag == .alloc) {
+        return .{ .reg = 10, .off = slotoff(i.op1) };
+    } else {
+        return error.InvalidAddress;
+    }
+}
 
 pub fn dump(self: *Self) void {
     for (self.code.items) |*i, ni| {
@@ -440,30 +461,16 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
                         try mcmovreg(cfo, i.*, dst); // elided if dst is register
                     },
                     .lea => {
-                        // TODO: spill spall supllit?
-                        const base = self.iref(i.op1).?.ipreg() orelse unreachable;
-                        const idx = self.iref(i.op2).?.ipreg() orelse unreachable;
-                        _ = base;
-                        _ = idx;
-                        // const eaddr = Self.qi(base, idx);
+                        // TODO: keep track of lifetime extensions of fused values somewhere
                         if (i.mckind == .fused) {
-                            // ea_fused = eaddr;
                             was_fused = true;
                         } else {
-                            const dst = i.ipreg() orelse .r0;
-                            // try cfo.lea(dst, Self.qi(base, idx));
-                            try mcmovreg(cfo, i.*, dst); // elided if dst is register
                             unreachable;
                         }
                     },
                     .store => {
-                        // TODO: fuse lea with store
-                        const addr = self.iref(i.op1).?;
-                        // const eaddr = if (addr == fused_inst)
-                        //     ea_fused
-                        // else
-                        //     Self.a(self.iref(i.op1).?.ipreg() orelse unreachable);
-                        const eaddr: EAddr = if (addr.tag == .alloc) .{ .reg = 10, .off = slotoff(addr.op1) } else if (addr.mckind == .ipreg) .{ .reg = @intCast(u4, addr.mcidx), .off = 0 } else unreachable;
+                        const addr = self.iref(i.op1).?.*;
+                        const eaddr: EAddr = try get_eaddr(self, addr, true);
                         const val = self.iref(i.op2).?;
                         try addrmovmc(cfo, eaddr, val.*);
                     },
@@ -490,13 +497,15 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
                     },
                     .xadd => {
                         const dest = self.iref(i.op1).?.*;
+                        const dest_addr = try get_eaddr(self, dest, true);
                         const src = self.iref(i.op2).?.*;
-                        const dreg = if (dest.mckind == .ipreg) @intToEnum(IPReg, dest.mcidx) else .r0;
-                        try regmovmc(cfo, dreg, dest);
+                        // TODO: regalloc should alloc even a constant
                         const sreg = if (src.mckind == .ipreg) @intToEnum(IPReg, src.mcidx) else .r0;
-                        if (dreg == sreg) return error.@"TODO: regalloc should explicitly unspill";
                         try regmovmc(cfo, sreg, src);
-                        try cfo.put(I.xadd(dreg, sreg));
+                        var insn = I.xadd(@intToEnum(IPReg, dest_addr.reg), sreg);
+                        // TODO: if this works, upstream!
+                        insn.off = dest_addr.off;
+                        try cfo.put(insn);
                     },
                     .callarg => {
                         // already handled in .call
