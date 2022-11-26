@@ -147,7 +147,7 @@ pub fn main() !void {
             }
         }
     }
-    print("DUN\n", .{});
+    print("interrupted.\n", .{});
 
     if (hash_map) |hash| {
         var info: ?std.debug.ModuleDebugInfo = null;
@@ -164,14 +164,33 @@ pub fn main() !void {
         var key: u32 = 0;
         var next_key: u32 = 0;
         print("hashy: \n", .{});
+
+        const Pair = struct {
+            key: u32,
+            value: u64,
+            const Self = @This();
+            fn compare(ctx: void, lhs: Self, rhs: Self) bool {
+                _ = ctx;
+                return lhs.value < rhs.value;
+            }
+        };
+        var kv_pairs = try std.ArrayList(Pair).initCapacity(allocator, 1024);
+        defer kv_pairs.deinit();
+
         while (try BPF.map_get_next_key(hash.fd, asBytes(&key), asBytes(&next_key))) {
             key = next_key;
             var value: u64 = 0;
             try BPF.map_lookup_elem(hash.fd, asBytes(&key), asBytes(&value));
-            print("{}: ", .{value});
+            try kv_pairs.append(.{ .key = key, .value = value });
+        }
+
+        std.sort.sort(Pair, kv_pairs.items, {}, Pair.compare);
+
+        for (kv_pairs.items) |iytem| {
+            print("{}: ", .{iytem.value});
             if (stack_map) |stack| {
                 var trace: [128]u64 = [1]u64{0xDEADBEEFDEADF00D} ** 128;
-                BPF.map_lookup_elem(stack.fd, asBytes(&key), asBytes(&trace)) catch |e| {
+                BPF.map_lookup_elem(stack.fd, asBytes(&iytem.key), asBytes(&trace)) catch |e| {
                     if (e == error.NotFound) continue;
                     return e;
                 };
@@ -195,9 +214,6 @@ pub fn main() !void {
             }
         }
     }
-    // doesn't work on kprobe programs (more context needed?)
-    // const retval = try bpfUtil.prog_test_run(prog);
-    // print("RETURNERA: {}\n", .{retval});
 }
 
 fn adj(val: u64) u64 {
