@@ -91,10 +91,12 @@ pub fn main() !void {
     var did_read = false;
 
     const count_map = try parser.get_obj("count", .map);
+    var ncount: usize = 0;
     if (count_map) |map| {
-        if (map.key_size != 4 or map.val_size > 16) {
+        if (map.key_size != 4 or map.val_size % 8 != 0) {
             return error.whatthef;
         }
+        ncount = map.val_size / 8;
     }
 
     const hash_map = try parser.get_obj("hashmap", .map);
@@ -118,19 +120,21 @@ pub fn main() !void {
     };
     try os.sigaction(os.SIG.INT, &sa, null);
 
-    var lastval: u64 = @truncate(u64, -1);
+    var lastval: []u64 = try allocator.alloc(u64, ncount);
+    var countval: []u64 = try allocator.alloc(u64, ncount);
     const asBytes = mem.asBytes;
     while (!did_int) {
         std.time.sleep(1e9);
         if (count_map) |map| {
             const key: u32 = 0;
-            var value: [2]u64 = undefined;
-            try BPF.map_lookup_elem(map.fd, asBytes(&key), asBytes(&value));
-            if (value[0] < lastval or value[0] > lastval + 1) {
-                print("VALUE: {}. That's NUMBERWANG!\n", .{value[0]});
-                lastval = value[0];
-                if (map.val_size >= 16) {
-                    print("EXTRA VALUE: {}\n", .{value[1]});
+            try BPF.map_lookup_elem(map.fd, asBytes(&key), mem.sliceAsBytes(countval));
+            if (!mem.eql(u64, lastval, countval)) {
+                print("VALUE: {}. That's NUMBERWANG!\n", .{countval[0]});
+                mem.copy(u64, lastval, countval);
+                for (countval[1..]) |val, i| {
+                    if (map.val_size >= 16) {
+                        print("EXTRA VALUE {}: {}\n", .{ i + 1, val });
+                    }
                 }
             }
         }

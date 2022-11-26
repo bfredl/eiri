@@ -1,0 +1,24 @@
+map $count array 4 24 1
+
+func $main MIT
+  %value = map_value $count
+  xadd [%value] 1
+  ret 0
+end
+
+func $alt MIT
+  %value = map_value $count
+  xadd [%value+8] 1
+  ret 0
+end
+
+func $alt2 MIT
+  %value = map_value $count
+  xadd [%value+16] 1
+  ret 0
+end
+
+elf $neovim /home/bfredl/dev/neovim/build/bin/nvim
+attach $main usdt $neovim docmd_c
+attach $alt usdt $neovim docmd_a
+attach $alt2 usdt $neovim docmd_b
