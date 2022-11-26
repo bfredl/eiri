@@ -451,11 +451,9 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
                     },
                     .load => {
                         // TODO: spill spall supllit?
-                        const addr = self.iref(i.op1).?;
-                        const offval = self.iref(i.op2).?;
-                        if (offval.tag != .constant) return error.@"TODO: load[reg1+reg2]";
-                        const off = @intCast(i16, offval.op1);
-                        const eaddr: EAddr = if (addr.tag == .alloc) .{ .reg = 10, .off = slotoff(addr.op1) + off } else if (addr.mckind == .ipreg) .{ .reg = @intCast(u4, addr.mcidx), .off = off } else unreachable;
+                        const addr = self.iref(i.op1).?.*;
+                        const off = @intCast(i16, i.op2);
+                        const eaddr: EAddr = (try get_eaddr(self, addr, false)).with_off(off);
                         const dst = i.ipreg() orelse .r0;
                         try cfo.regmovaddr(dst, eaddr);
                         try mcmovreg(cfo, i.*, dst); // elided if dst is register

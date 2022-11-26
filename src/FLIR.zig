@@ -230,8 +230,8 @@ pub fn n_op(tag: Tag, rw: bool) u2 {
         .putphi => if (rw) @as(u2, 2) else @as(u2, 1), // TODO: booooooo
         .constant => 0,
         // .renum => 1,
-        .load => 2, // base, idx
-        .lea => 2, // base, idx. elided when only used for a store!
+        .load => 1, // base (+- constant off)
+        .lea => 1, // base (+- constant off)
         .store => 2, // addr, val
         .iop => 2,
         .icmp => 2,
@@ -466,14 +466,13 @@ pub fn putvar(self: *Self, node: u16, op1: u16, op2: u16) !void {
     _ = try self.binop(node, .putvar, op1, op2);
 }
 
-pub fn store2(self: *Self, node: u16, base: u16, idx: u16, val: u16) !u16 {
+pub fn lea(self: *Self, node: u16, base: u16, off: i16) !u16 {
     // FUBBIT: all possible instances of fusing should be detected in analysis anyway
-    const addr = try self.addInst(node, .{ .tag = .lea, .op1 = base, .op2 = idx, .mckind = .fused });
-    return self.addInst(node, .{ .tag = .store, .op1 = addr, .op2 = val, .spec = self.iref(val).?.spec });
+    return self.addInst(node, .{ .tag = .lea, .op1 = base, .op2 = @bitCast(u16, off), .mckind = .fused });
 }
 
-pub fn load(self: *Self, node: u16, base: u16, off: u16) !u16 {
-    return try self.addInst(node, .{ .tag = .load, .op1 = base, .op2 = off });
+pub fn load(self: *Self, node: u16, base: u16, off: i16) !u16 {
+    return try self.addInst(node, .{ .tag = .load, .op1 = base, .op2 = @bitCast(u16, off) });
 }
 
 pub fn store(self: *Self, node: u16, addr: u16, val: u16) !void {

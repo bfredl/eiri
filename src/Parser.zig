@@ -126,6 +126,22 @@ fn num(self: *Self) ?u32 {
     return val;
 }
 
+fn signum(self: *Self) ParseError!i32 {
+    const first = self.nonws() orelse return error.ParseError;
+    var sign = false;
+
+    if (first == '+') {
+        self.pos += 1;
+    } else if (first == '-') {
+        sign = true;
+        self.pos += 1;
+    }
+
+    const unum: u32 = self.num() orelse return error.ParseError;
+
+    return if (sign) @intCast(i32, -@intCast(i64, unum)) else @intCast(i32, unum);
+}
+
 const ParseError = error{ ParseError, OutOfMemory, FLIRError };
 fn require(val: anytype, what: []const u8) ParseError!@TypeOf(val.?) {
     return val orelse {
@@ -358,14 +374,14 @@ pub fn stmt(self: *Self, f: *Func) ParseError!bool {
             return true;
         } else if (mem.eql(u8, kw, "store")) {
             try self.expect_char('[');
-            const dest = try require(try self.call_arg(f), "destination");
+            const dest = try self.addr_arg(f, false);
             try self.expect_char(']');
             const value = try require(try self.call_arg(f), "value");
             try f.ir.store(f.curnode, dest, value);
             return true;
         } else if (mem.eql(u8, kw, "xadd")) {
             try self.expect_char('[');
-            const dest = try require(try self.call_arg(f), "destination");
+            const dest = try self.addr_arg(f, false);
             try self.expect_char(']');
             const value = try require(try self.call_arg(f), "value");
             try f.ir.xadd(f.curnode, dest, value);
@@ -394,6 +410,30 @@ pub fn stmt(self: *Self, f: *Func) ParseError!bool {
         return true;
     }
     return error.ParseError;
+}
+
+pub fn addr_arg(self: *Self, f: *Func, load: bool) ParseError!u16 {
+    const v = try self.varname() orelse return error.ParseError;
+    const ref = f.refs.get(v) orelse {
+        print("undefined ref %{s}!\n", .{v});
+        return error.ParseError;
+    };
+
+    var off: i16 = 0;
+
+    const lookahead = self.nonws();
+    if (lookahead == @as(u8, '+') or lookahead == @as(u8, '-')) {
+        off = @intCast(i16, try self.signum());
+        if (!load) {
+            return f.ir.lea(f.curnode, ref, off);
+        }
+    } else {
+        if (!load) {
+            return ref;
+        }
+    }
+
+    return try f.ir.load(f.curnode, ref, off);
 }
 
 pub fn call_arg(self: *Self, f: *Func) ParseError!?u16 {
@@ -446,8 +486,7 @@ pub fn expr(self: *Self, f: *Func) ParseError!u16 {
             _ = self.nonws();
             const reg = try self.identifier();
             const regidx = meta.stringToEnum(bpfUtil.pt_regs_amd64, reg) orelse return error.ParseError;
-            const const_off = try f.ir.const_int(f.curnode, 8 * @enumToInt(regidx));
-            return f.ir.load(f.curnode, ctx, const_off);
+            return f.ir.load(f.curnode, ctx, 8 * @enumToInt(regidx));
         }
     }
     return error.ParseError;
