@@ -33,6 +33,7 @@ pub fn usage() void {
         \\    a: print analyzed IR
         \\    d: print BPF disassembly
         \\    D: print BPF disassembly per IR node
+        \\    s: print used symbol addresses
         \\
     , .{});
 }
@@ -149,6 +150,17 @@ pub fn main() !void {
     print("DUN\n", .{});
 
     if (hash_map) |hash| {
+        var info: ?std.debug.ModuleDebugInfo = null;
+
+        const elf = try parser.get_obj("neovim", .elf);
+        if (elf) |e| {
+            const filen = try std.fs.cwd().openFile(e.fname, .{});
+            // TODO: cringe, reuse existing mmapping of elf.syms
+            info = try std.debug.readElfDebugInfo(allocator, filen);
+            info.?.base_address = 0; // TODO: CRINGE
+            print("INFON: {}\n", .{info.?.dwarf.func_list.items[0]});
+        }
+
         var key: u32 = 0;
         var next_key: u32 = 0;
         print("hashy: \n", .{});
@@ -163,7 +175,23 @@ pub fn main() !void {
                     if (e == error.NotFound) continue;
                     return e;
                 };
-                print("0x{x} 0x{x} 0x{x}\n", .{ adj(trace[0]), adj(trace[1]), adj(trace[2]) });
+                if (info) |*i| {
+                    print("\n", .{});
+                    for (trace[0..3]) |t| {
+                        const address = adj(t);
+                        const sym = try i.getSymbolAtAddress(allocator, address);
+                        defer sym.deinit(allocator);
+
+                        print("{s}: 0x{x}", .{ sym.symbol_name, address });
+                        if (sym.line_info) |*li| {
+                            print(" at {s}:{d}:{d}\n", .{ li.file_name, li.line, li.column });
+                        } else {
+                            print("\n", .{});
+                        }
+                    }
+                } else {
+                    print("0x{x} 0x{x} 0x{x}\n", .{ adj(trace[0]), adj(trace[1]), adj(trace[2]) });
+                }
             }
         }
     }
