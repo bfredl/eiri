@@ -8,7 +8,7 @@ func $main GPL
   %one = alloc
   %map = map $hashmap
   %stackmap = map $stackmap
-  %id = call get_stackid %ctx %stackmap 257
+  %id = call get_stackid %ctx %stackmap 256
   store [%key] %id
   %valptr = call map_lookup_elem %map %key
   eq %valptr 0 :new

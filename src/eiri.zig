@@ -176,27 +176,33 @@ pub fn main() !void {
         };
         var kv_pairs = try std.ArrayList(Pair).initCapacity(allocator, 1024);
         defer kv_pairs.deinit();
+        var summa: u64 = 0;
 
         while (try BPF.map_get_next_key(hash.fd, asBytes(&key), asBytes(&next_key))) {
             key = next_key;
             var value: u64 = 0;
             try BPF.map_lookup_elem(hash.fd, asBytes(&key), asBytes(&value));
             try kv_pairs.append(.{ .key = key, .value = value });
+            summa += value;
         }
 
         std.sort.sort(Pair, kv_pairs.items, {}, Pair.compare);
+        var bottensumma: u64 = 0;
 
         for (kv_pairs.items) |iytem| {
-            print("{}: ", .{iytem.value});
+            bottensumma += iytem.value;
+            if (bottensumma * 10 < summa) continue;
+            print("{}:", .{iytem.value});
             if (stack_map) |stack| {
                 var trace: [128]u64 = [1]u64{0xDEADBEEFDEADF00D} ** 128;
                 BPF.map_lookup_elem(stack.fd, asBytes(&iytem.key), asBytes(&trace)) catch |e| {
+                    print("\nSTÄMNINGSJAZZ: {}\n", .{e});
                     if (e == error.NotFound) continue;
                     return e;
                 };
                 if (info) |*i| {
                     print("\n", .{});
-                    for (trace[0..3]) |t| {
+                    for (trace[0..5]) |t| {
                         const address = adj(t);
                         const sym = try i.getSymbolAtAddress(allocator, address);
                         defer sym.deinit(allocator);
@@ -213,7 +219,13 @@ pub fn main() !void {
                 }
             }
         }
+
+        print("\n summa: {}\n", .{summa});
+        if (ncount > 0) {
+            print("compare: {}\n", .{countval[0]});
+        }
     }
+    print("FIN.\n", .{});
 }
 
 fn adj(val: u64) u64 {
