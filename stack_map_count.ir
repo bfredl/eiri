@@ -1,0 +1,35 @@
+map $count array 4 24 1
+map $ringbuf ringbuf 0 0 4096
+map $stackmap stack_trace 4 1016 16384
+map $hashmap hash 4 8 16384
+
+func $main GPL
+  %ctx = arg
+  %key = alloc
+  %one = alloc
+  %map = map $hashmap
+  %stackmap = map $stackmap
+  %id = call get_stackid %ctx %stackmap 256
+  store [%key] %id
+  %valptr = call map_lookup_elem %map %key
+  eq %valptr 0 :new
+:doit
+  xadd [%valptr] 1
+  jmp :exit
+:new
+  store [%one] 1
+  %status = call map_update_elem %map %key %one 1
+:exit
+  ret 0
+end
+
+func $counter MIT
+  %value = map_value $count
+  xadd [%value] 1
+  ret 0
+end
+
+
+elf $neovim /home/bfredl/dev/neovim/build/bin/nvim
+attach $main uprobe $neovim xmemdupz
+attach $counter usdt $neovim docmd_b
