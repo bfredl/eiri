@@ -101,20 +101,6 @@ pub fn main() !void {
         ncount = map.val_size / 8;
     }
 
-    const hash_map = try parser.get_obj("hashmap", .map);
-    if (hash_map) |map| {
-        if (map.key_size != 4 or map.val_size != 8) {
-            return error.whatthef;
-        }
-    }
-
-    const stack_map = try parser.get_obj("stackmap", .map);
-    if (stack_map) |map| {
-        if (map.key_size != 4 or map.val_size > 1024) {
-            return error.whatthef;
-        }
-    }
-
     var sa = os.Sigaction{
         .handler = .{ .sigaction = on_sigint },
         .mask = os.empty_sigset,
@@ -160,11 +146,28 @@ pub fn main() !void {
         print("INFON: {}\n", .{info.?.dwarf.func_list.items[0]});
     }
 
+    const hash_map = try parser.get_obj("hashmap", .map);
     if (hash_map) |hash| {
+        if (hash.key_size != 4 or hash.val_size != 8) {
+            return error.whatthef;
+        }
+        const stack_map = try parser.get_obj("stackmap", .map);
         if (stack_map) |stack| {
+            if (stack.key_size != 4 or stack.val_size > 1024) {
+                return error.whatthef;
+            }
             try print_stack_map(allocator, if (info) |*i| i else null, hash, stack);
         }
     }
+
+    const stack_hash = try parser.get_obj("stack_hash", .map);
+    if (stack_hash) |map| {
+        if (map.key_size % 8 != 0 or map.val_size != 8) {
+            return error.whatthef;
+        }
+        try print_stack_hash(allocator, if (info) |*i| i else null, map);
+    }
+
     if (ncount > 0) {
         print("compare: {}\n", .{countval[0]});
     }
@@ -221,6 +224,59 @@ fn print_stack_map(allocator: mem.Allocator, info: ?*std.debug.ModuleDebugInfo, 
         }
     }
 
+    print("\n summa: {}\n", .{summa});
+}
+
+fn print_stack_hash(allocator: mem.Allocator, info: ?*std.debug.ModuleDebugInfo, hash: anytype) !void {
+    const ncount = hash.key_size / 8;
+
+    var key: []u64 = try allocator.alloc(u64, ncount);
+    var next_key: []u64 = try allocator.alloc(u64, ncount);
+    print("hashy: \n", .{});
+
+    // MAN HAR INT' SOPPA I??
+    const static_ncount = 5;
+    std.debug.assert(ncount == static_ncount);
+
+    const Pair = struct {
+        key: [static_ncount]u64,
+        value: u64,
+        const Self = @This();
+        fn compare(ctx: void, lhs: Self, rhs: Self) bool {
+            _ = ctx;
+            return lhs.value < rhs.value;
+        }
+    };
+    var kv_pairs = try std.ArrayList(Pair).initCapacity(allocator, 1024);
+
+    defer kv_pairs.deinit();
+    var summa: u64 = 0;
+
+    while (try BPF.map_get_next_key(hash.fd, mem.sliceAsBytes(key), mem.sliceAsBytes(next_key))) {
+        key = next_key;
+        var value: u64 = 0;
+        try BPF.map_lookup_elem(hash.fd, mem.sliceAsBytes(key), asBytes(&value));
+        try kv_pairs.append(.{ .key = key[0..5].*, .value = value });
+        summa += value;
+    }
+
+    std.sort.sort(Pair, kv_pairs.items, {}, Pair.compare);
+    var bottensumma: u64 = 0;
+
+    for (kv_pairs.items) |iytem| {
+        bottensumma += iytem.value;
+        if (bottensumma * 10 < summa) continue;
+        print("{}:", .{iytem.value});
+        if (info) |i| {
+            print("\n", .{});
+            for (iytem.key) |t| {
+                const address = adj(t);
+                try symbolize(allocator, i, address);
+            }
+        } else {
+            print("0x{x} 0x{x} 0x{x}\n", .{ adj(iytem.key[0]), adj(iytem.key[1]), adj(iytem.key[2]) });
+        }
+    }
     print("\n summa: {}\n", .{summa});
 }
 

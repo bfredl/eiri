@@ -472,7 +472,8 @@ pub fn expr(self: *Self, f: *Func) ParseError!u16 {
         } else if (mem.eql(u8, kw, "arg")) {
             return f.ir.arg();
         } else if (mem.eql(u8, kw, "alloc")) {
-            return f.ir.alloc(f.curnode);
+            const size = self.num() orelse 1;
+            return f.ir.alloc(f.curnode, @intCast(u8, size));
         } else if (mem.eql(u8, kw, "map")) {
             const name = try require(try self.objname(), "map name");
             const map = try self.require_obj(name, .map);

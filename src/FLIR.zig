@@ -414,12 +414,12 @@ pub fn const_int(self: *Self, node: u16, val: u16) !u16 {
     return self.addInst(node, .{ .tag = .constant, .op1 = val, .op2 = 0, .spec = Inst.TODO_INT_SPEC, .mckind = .constant });
 }
 
-pub fn alloc(self: *Self, node: u16) !u16 {
+pub fn alloc(self: *Self, node: u16, size: u8) !u16 {
     if (self.nslots == 255) {
         return error.OutOfMemory; // TODO: yes, but actually no
     }
-    const slot = self.nslots;
-    self.nslots += 1;
+    const slot = self.nslots + size - 1;
+    self.nslots += size;
     return self.addInst(node, .{ .tag = .alloc, .op1 = slot, .op2 = 0, .spec = Inst.TODO_INT_SPEC, .mckind = .fused });
 }
 
