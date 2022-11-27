@@ -1,7 +1,7 @@
 map $count array 4 24 1
 map $ringbuf ringbuf 0 0 4096
-map $stackmap stack_trace 4 1016 16384
-map $hashmap hash 4 8 16384
+map $stackmap stack_trace 4 1016 32768
+map $hashmap hash 4 8 32768
 
 func $main GPL
   %ctx = arg

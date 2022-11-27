@@ -13,6 +13,7 @@ const mem = std.mem;
 const fd_t = os.linux.fd_t;
 const errno = os.linux.getErrno;
 const print = std.debug.print;
+const asBytes = mem.asBytes;
 
 pub var options = struct {
     dbg_raw_ir: bool = false,
@@ -123,7 +124,6 @@ pub fn main() !void {
 
     var lastval: []u64 = try allocator.alloc(u64, ncount);
     var countval: []u64 = try allocator.alloc(u64, ncount);
-    const asBytes = mem.asBytes;
     while (!did_int) {
         std.time.sleep(1e9);
         if (count_map) |map| {
@@ -149,83 +149,91 @@ pub fn main() !void {
     }
     print("interrupted.\n", .{});
 
+    var info: ?std.debug.ModuleDebugInfo = null;
+
+    const elf = try parser.get_obj("neovim", .elf);
+    if (elf) |e| {
+        const filen = try std.fs.cwd().openFile(e.fname, .{});
+        // TODO: cringe, reuse existing mmapping of elf.syms
+        info = try std.debug.readElfDebugInfo(allocator, filen);
+        info.?.base_address = 0; // TODO: CRINGE
+        print("INFON: {}\n", .{info.?.dwarf.func_list.items[0]});
+    }
+
     if (hash_map) |hash| {
-        var info: ?std.debug.ModuleDebugInfo = null;
-
-        const elf = try parser.get_obj("neovim", .elf);
-        if (elf) |e| {
-            const filen = try std.fs.cwd().openFile(e.fname, .{});
-            // TODO: cringe, reuse existing mmapping of elf.syms
-            info = try std.debug.readElfDebugInfo(allocator, filen);
-            info.?.base_address = 0; // TODO: CRINGE
-            print("INFON: {}\n", .{info.?.dwarf.func_list.items[0]});
-        }
-
-        var key: u32 = 0;
-        var next_key: u32 = 0;
-        print("hashy: \n", .{});
-
-        const Pair = struct {
-            key: u32,
-            value: u64,
-            const Self = @This();
-            fn compare(ctx: void, lhs: Self, rhs: Self) bool {
-                _ = ctx;
-                return lhs.value < rhs.value;
-            }
-        };
-        var kv_pairs = try std.ArrayList(Pair).initCapacity(allocator, 1024);
-        defer kv_pairs.deinit();
-        var summa: u64 = 0;
-
-        while (try BPF.map_get_next_key(hash.fd, asBytes(&key), asBytes(&next_key))) {
-            key = next_key;
-            var value: u64 = 0;
-            try BPF.map_lookup_elem(hash.fd, asBytes(&key), asBytes(&value));
-            try kv_pairs.append(.{ .key = key, .value = value });
-            summa += value;
-        }
-
-        std.sort.sort(Pair, kv_pairs.items, {}, Pair.compare);
-        var bottensumma: u64 = 0;
-
-        for (kv_pairs.items) |iytem| {
-            bottensumma += iytem.value;
-            if (bottensumma * 10 < summa) continue;
-            print("{}:", .{iytem.value});
-            if (stack_map) |stack| {
-                var trace: [128]u64 = [1]u64{0xDEADBEEFDEADF00D} ** 128;
-                BPF.map_lookup_elem(stack.fd, asBytes(&iytem.key), asBytes(&trace)) catch |e| {
-                    print("\nSTÄMNINGSJAZZ: {}\n", .{e});
-                    if (e == error.NotFound) continue;
-                    return e;
-                };
-                if (info) |*i| {
-                    print("\n", .{});
-                    for (trace[0..5]) |t| {
-                        const address = adj(t);
-                        const sym = try i.getSymbolAtAddress(allocator, address);
-                        defer sym.deinit(allocator);
-
-                        print("{s}: 0x{x}", .{ sym.symbol_name, address });
-                        if (sym.line_info) |*li| {
-                            print(" at {s}:{d}:{d}\n", .{ li.file_name, li.line, li.column });
-                        } else {
-                            print("\n", .{});
-                        }
-                    }
-                } else {
-                    print("0x{x} 0x{x} 0x{x}\n", .{ adj(trace[0]), adj(trace[1]), adj(trace[2]) });
-                }
-            }
-        }
-
-        print("\n summa: {}\n", .{summa});
-        if (ncount > 0) {
-            print("compare: {}\n", .{countval[0]});
+        if (stack_map) |stack| {
+            try print_stack_map(allocator, if (info) |*i| i else null, hash, stack);
         }
     }
+    if (ncount > 0) {
+        print("compare: {}\n", .{countval[0]});
+    }
     print("FIN.\n", .{});
+}
+
+fn print_stack_map(allocator: mem.Allocator, info: ?*std.debug.ModuleDebugInfo, hash: anytype, stack: anytype) !void {
+    var key: u32 = 0;
+    var next_key: u32 = 0;
+    print("hashy: \n", .{});
+
+    const Pair = struct {
+        key: u32,
+        value: u64,
+        const Self = @This();
+        fn compare(ctx: void, lhs: Self, rhs: Self) bool {
+            _ = ctx;
+            return lhs.value < rhs.value;
+        }
+    };
+    var kv_pairs = try std.ArrayList(Pair).initCapacity(allocator, 1024);
+    defer kv_pairs.deinit();
+    var summa: u64 = 0;
+
+    while (try BPF.map_get_next_key(hash.fd, asBytes(&key), asBytes(&next_key))) {
+        key = next_key;
+        var value: u64 = 0;
+        try BPF.map_lookup_elem(hash.fd, asBytes(&key), asBytes(&value));
+        try kv_pairs.append(.{ .key = key, .value = value });
+        summa += value;
+    }
+
+    std.sort.sort(Pair, kv_pairs.items, {}, Pair.compare);
+    var bottensumma: u64 = 0;
+
+    for (kv_pairs.items) |iytem| {
+        bottensumma += iytem.value;
+        if (bottensumma * 10 < summa) continue;
+        print("{}:", .{iytem.value});
+        var trace: [128]u64 = [1]u64{0xDEADBEEFDEADF00D} ** 128;
+        BPF.map_lookup_elem(stack.fd, asBytes(&iytem.key), asBytes(&trace)) catch |e| {
+            print("\nSTÄMNINGSJAZZ: {}\n", .{e});
+            if (e == error.NotFound) continue;
+            return e;
+        };
+        if (info) |i| {
+            print("\n", .{});
+            for (trace[0..5]) |t| {
+                const address = adj(t);
+                try symbolize(allocator, i, address);
+            }
+        } else {
+            print("0x{x} 0x{x} 0x{x}\n", .{ adj(trace[0]), adj(trace[1]), adj(trace[2]) });
+        }
+    }
+
+    print("\n summa: {}\n", .{summa});
+}
+
+fn symbolize(allocator: mem.Allocator, i: *std.debug.ModuleDebugInfo, address: u64) !void {
+    const sym = try i.getSymbolAtAddress(allocator, address);
+    defer sym.deinit(allocator);
+
+    print("{s}: 0x{x}", .{ sym.symbol_name, address });
+    if (sym.line_info) |*li| {
+        print(" at {s}:{d}:{d}\n", .{ li.file_name, li.line, li.column });
+    } else {
+        print("\n", .{});
+    }
 }
 
 fn adj(val: u64) u64 {
