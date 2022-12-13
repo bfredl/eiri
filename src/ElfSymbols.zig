@@ -22,6 +22,7 @@ symtab: ?[]const elf.Elf64_Sym = null,
 symstrtab: ?[]const u8 = null,
 strtab: ?[]const u8 = null,
 note_std: ?[]align(4) const u8 = null,
+di: ?@import("./DwarfInfo.zig") = null,
 
 const Stapsdt_hdr = extern struct {
     pc: u64,
@@ -69,10 +70,10 @@ pub fn init(elf_file: File) !Self {
 
     var symtab: ?elf.Elf64_Shdr = null;
     var strtab: ?elf.Elf64_Shdr = null;
-    var note_sdt: ?elf.Elf64_Shdr = null;
     var section_headers = elf_hdr.section_header_iterator(&stream);
     while (try section_headers.next()) |section| {
         const name = if (self.shstrtab) |s| mem.span(@ptrCast([*:0]const u8, &s[section.sh_name])) else "??";
+        // print("fråga om NAMM: {s}\n", .{name});
         if (section.sh_type == elf.SHT_SYMTAB) {
             symtab = section;
             // TODO: figure out how to actually find the right strtab
@@ -80,7 +81,9 @@ pub fn init(elf_file: File) !Self {
             strtab = section;
             // TODO: check all notes for NT_STAPSDT, name might not be stable?
         } else if (mem.eql(u8, name, ".note.stapsdt")) {
-            note_sdt = section;
+            self.note_std = @alignCast(4, file_bytes[section.sh_offset..][0..section.sh_size]);
+        } else if (mem.eql(u8, name, ".debug_info")) {
+            self.di = .{ .debug_info = file_bytes[section.sh_offset..][0..section.sh_size] };
         }
     }
     if (symtab) |st| {
@@ -98,8 +101,9 @@ pub fn init(elf_file: File) !Self {
         self.strtab = file_bytes[st.sh_offset..][0..st.sh_size];
     }
 
-    if (note_sdt) |note| {
-        self.note_std = @alignCast(4, file_bytes[note.sh_offset..][0..note.sh_size]);
+    if (self.di) |di| {
+        print("AW YISSS!\n", .{});
+        di.get_dwarf_units();
     }
 
     if (false) {

@@ -15,7 +15,7 @@ const errno = os.linux.getErrno;
 const print = std.debug.print;
 const asBytes = mem.asBytes;
 
-const have_dwarf = true;
+const have_dwarf = false;
 
 pub var options = struct {
     dbg_raw_ir: bool = false,
