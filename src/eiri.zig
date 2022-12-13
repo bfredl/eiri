@@ -15,6 +15,8 @@ const errno = os.linux.getErrno;
 const print = std.debug.print;
 const asBytes = mem.asBytes;
 
+const have_dwarf = true;
+
 pub var options = struct {
     dbg_raw_ir: bool = false,
     dbg_analysed_ir: bool = false,
@@ -139,11 +141,13 @@ pub fn main() !void {
 
     const elf = try parser.get_obj("neovim", .elf);
     if (elf) |e| {
-        const filen = try std.fs.cwd().openFile(e.fname, .{});
-        // TODO: cringe, reuse existing mmapping of elf.syms
-        info = try std.debug.readElfDebugInfo(allocator, filen);
-        info.?.base_address = 0; // TODO: CRINGE
-        print("INFON: {}\n", .{info.?.dwarf.func_list.items[0]});
+        if (have_dwarf) {
+            const filen = try std.fs.cwd().openFile(e.fname, .{});
+            // TODO: cringe, reuse existing mmapping of elf.syms
+            info = try std.debug.readElfDebugInfo(allocator, filen);
+            info.?.base_address = 0; // TODO: CRINGE
+            print("INFON: {}\n", .{info.?.dwarf.func_list.items[0]});
+        }
     }
 
     const hash_map = try parser.get_obj("hashmap", .map);
@@ -281,6 +285,7 @@ fn print_stack_hash(allocator: mem.Allocator, info: ?*std.debug.ModuleDebugInfo,
 }
 
 fn symbolize(allocator: mem.Allocator, i: *std.debug.ModuleDebugInfo, address: u64) !void {
+    if (!have_dwarf) return;
     const sym = try i.getSymbolAtAddress(allocator, address);
     defer sym.deinit(allocator);
 
