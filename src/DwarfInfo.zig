@@ -2,12 +2,15 @@ debug_info: []const u8,
 // debug_abbrev: []const u8,
 // debug_str: []const u8,
 const std = @import("std");
+const print = std.debug.print;
 
 const Self = @This();
 
-pub fn get_dwarf_units(self: Self) void {
+pub fn get_dwarf_units(self: Self) !void {
     var it = self.getCompileUnitIterator();
-    _ = it;
+    while (try it.next()) |res| {
+        print("ITYM: {}\n", .{res.value});
+    }
 }
 
 fn getCompileUnitIterator(self: Self) CompileUnitIterator {

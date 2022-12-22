@@ -103,7 +103,7 @@ pub fn init(elf_file: File) !Self {
 
     if (self.di) |di| {
         print("AW YISSS!\n", .{});
-        di.get_dwarf_units();
+        try di.get_dwarf_units();
     }
 
     if (false) {
