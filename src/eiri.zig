@@ -15,7 +15,7 @@ const errno = os.linux.getErrno;
 const print = std.debug.print;
 const asBytes = mem.asBytes;
 
-const have_dwarf = false;
+const have_dwarf = true;
 
 pub var options = struct {
     dbg_raw_ir: bool = false,
@@ -130,7 +130,21 @@ pub fn main() !void {
         if (ringbuf) |*rb| {
             while (rb.peek_event()) |ev| {
                 did_read = true;
-                print("VERY EVENT: {}\n", .{ev});
+                if (parser.ring_buf_format) {
+                    const data = ev.data orelse continue;
+                    const nint = data.len / 8;
+                    print("[", .{});
+                    const buf = @ptrCast([*]u64, @alignCast(8, data.ptr))[0..nint];
+                    for (buf) |i| {
+                        print("{}, ", .{i});
+                    }
+                    if (data.len > nint * 8) {
+                        print("!!", .{});
+                    }
+                    print("]\n", .{});
+                } else {
+                    print("VERY EVENT: {}\n", .{ev});
+                }
                 rb.consume_event(ev);
             }
         }

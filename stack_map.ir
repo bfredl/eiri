@@ -23,4 +23,4 @@ func $main GPL
 end
 
 elf $neovim /home/bfredl/dev/neovim/build/bin/nvim
-attach $main uprobe $neovim xmemdupz
+attach $main uprobe $neovim ui_flush

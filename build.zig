@@ -1,8 +1,6 @@
-const Builder = @import("std").build.Builder;
-pub fn build(b: *Builder) void {
-    const mode = b.standardReleaseOptions();
-    var exe = b.addExecutable("eiri", "src/eiri.zig");
-    exe.setBuildMode(mode);
-    // exe.use_stage1 = true;
+const std = @import("std");
+pub fn build(b: *std.Build) void {
+    const opt = b.standardOptimizeOption(.{});
+    var exe = b.addExecutable(.{ .name = "eiri", .root_source_file = .{ .path = "src/eiri.zig" }, .optimize = opt });
     exe.install();
 }

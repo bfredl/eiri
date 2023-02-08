@@ -147,6 +147,17 @@ pub const pt_regs_amd64 = enum(u8) {
     ss,
 };
 
+// TODO: merge to one hashmap with the regnames
+pub const pt_reg_amd64_aliases = std.ComptimeStringMap(pt_regs_amd64, .{
+    .{ "arg1", .rdi },
+    .{ "arg2", .rsi },
+    .{ "arg3", .rdx },
+    .{ "arg4", .rcx },
+    .{ "arg5", .r8 },
+    .{ "arg6", .r9 },
+    .{ "ret", .rax },
+});
+
 pub fn pt_off(reg: pt_regs_amd64) u16 {
     // TODO: also for AARCH64 etc, of c
     return @enumToInt(reg) * 8;

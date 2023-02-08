@@ -1,5 +1,6 @@
 str: []const u8,
 pos: usize,
+ring_buf_format: bool = false,
 
 fd_objs: std.StringHashMap(union(enum) {
     map: struct {
@@ -84,7 +85,7 @@ fn keyword(self: *Self) ?Chunk {
 fn prefixed(self: *Self, sigil: u8) ParseError!?Chunk {
     if (self.nonws() != sigil) return null;
     self.pos += 1;
-    return try self.identifier();
+    return try self.identifier_direct();
 }
 
 fn objname(self: *Self) ParseError!?Chunk {
@@ -100,6 +101,11 @@ fn labelname(self: *Self) ParseError!?Chunk {
 }
 
 fn identifier(self: *Self) ParseError!Chunk {
+    _ = self.nonws();
+    return try self.identifier_direct();
+}
+
+fn identifier_direct(self: *Self) ParseError!Chunk {
     const start = self.pos;
     while (self.pos < self.str.len) : (self.pos += 1) {
         const next = self.str[self.pos];
@@ -248,6 +254,14 @@ pub fn toplevel(self: *Self) !void {
         // TODO: would be nice if this works so we don't need ioctls..
         // _ = try bpfUtil.prog_attach_perf(probe_fd, prog.fd);
         if (options.sys) try bpfUtil.perf_attach_bpf(probe_fd, prog.fd);
+    } else if (mem.eql(u8, kw, "ringbuf")) {
+        const kind = try self.identifier();
+        if (mem.eql(u8, kind, "int64")) {
+            self.ring_buf_format = true;
+        } else {
+            print("nämen füüü", .{});
+            return error.ParseError;
+        }
     } else {
         print("keyworda {?s}\n", .{kw});
         return error.ParseError;
@@ -255,10 +269,8 @@ pub fn toplevel(self: *Self) !void {
 }
 
 fn get_probe(self: *Self) !fd_t {
-    _ = self.nonws();
     const kind = try self.identifier();
     if (mem.eql(u8, kind, "kprobe")) {
-        _ = self.nonws();
         const func = try self.identifier();
         _ = self.nonws();
         const offset = self.num() orelse 0;
@@ -269,7 +281,6 @@ fn get_probe(self: *Self) !fd_t {
         return bpfUtil.perf_open_probe_cstr(kprobe_type, func, offset);
     } else if (mem.eql(u8, kind, "uprobe") or mem.eql(u8, kind, "usdt")) {
         const elf_name = try require(try self.objname(), "elf name");
-        _ = self.nonws();
         const probe = try self.identifier();
         const elf = try self.require_obj(elf_name, .elf);
         const iaddr = addr: {
@@ -484,9 +495,8 @@ pub fn expr(self: *Self, f: *Func) ParseError!u16 {
             return f.ir.load_map(f.curnode, @intCast(u64, map.fd), true);
         } else if (mem.eql(u8, kw, "ctxreg")) {
             const ctx = try require(try self.call_arg(f), "context");
-            _ = self.nonws();
             const reg = try self.identifier();
-            const regidx = meta.stringToEnum(bpfUtil.pt_regs_amd64, reg) orelse return error.ParseError;
+            const regidx = meta.stringToEnum(bpfUtil.pt_regs_amd64, reg) orelse bpfUtil.pt_reg_amd64_aliases.get(reg) orelse return error.ParseError;
             return f.ir.load(f.curnode, ctx, 8 * @enumToInt(regidx));
         }
     }
