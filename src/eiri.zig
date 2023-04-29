@@ -233,9 +233,13 @@ fn print_stack_map(allocator: mem.Allocator, info: ?*std.debug.ModuleDebugInfo, 
         };
         if (info) |i| {
             print("\n", .{});
-            for (trace[0..5]) |t| {
+            var last_zero = false;
+            for (trace) |t| {
                 const address = adj(t);
+                // TODO: be smart and explicitly detect the end
+                if (address == 0 and last_zero) continue;
                 try symbolize(allocator, i, address);
+                last_zero = address == 0;
             }
         } else {
             print("0x{x} 0x{x} 0x{x}\n", .{ adj(trace[0]), adj(trace[1]), adj(trace[2]) });

@@ -44,7 +44,7 @@ fn get_eaddr(self: *FLIR, i: FLIR.Inst, comptime may_lea: bool) !EAddr {
 }
 
 pub fn dump(self: *Self) void {
-    for (self.code.items) |*i, ni| {
+    for (self.code.items, 0..) |*i, ni| {
         dump_ins(i.*, ni);
     }
 }
@@ -375,7 +375,7 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
     const target = cfo.get_target();
     // try cfo.enter();
 
-    for (self.n.items) |*n, ni| {
+    for (self.n.items, 0..) |*n, ni| {
         if ((n.dfnum == 0 or n.npred == 0) and ni > 0) {
             // non-entry block not reached by df search is dead.
             // TODO: these should already been cleaned up at this point
@@ -404,7 +404,7 @@ pub fn codegen(self: *FLIR, cfo: *Self) !u32 {
         var fused_inst: ?*Inst = null;
         while (cur_blk) |blk| {
             var b = &self.b.items[blk];
-            for (b.i) |*i, ii| {
+            for (b.i, 0..) |*i, ii| {
                 if (i.tag == .empty) continue;
 
                 if (options.dbg_disasm_ir) {
